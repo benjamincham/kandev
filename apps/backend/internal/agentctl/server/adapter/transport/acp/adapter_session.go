@@ -93,6 +93,8 @@ func (a *Adapter) NewSession(ctx context.Context, mcpServers []types.McpServer) 
 
 //nolint:funlen // pre-existing session creation flow retained for transition ordering
 func (a *Adapter) newSession(ctx context.Context, mcpServers []types.McpServer) (string, error) {
+	a.configChangeMu.Lock()
+	defer a.configChangeMu.Unlock()
 	a.mu.Lock()
 	conn := a.acpConn
 	a.mu.Unlock()
@@ -451,6 +453,8 @@ func (a *Adapter) LoadSession(ctx context.Context, sessionID string, mcpServers 
 	}
 	defer a.sessionTransitionMu.Unlock()
 
+	a.configChangeMu.Lock()
+	defer a.configChangeMu.Unlock()
 	a.mu.Lock()
 	conn := a.acpConn
 	supportsLoad := a.capabilities.LoadSession
@@ -603,6 +607,8 @@ func (a *Adapter) LoadSession(ctx context.Context, sessionID string, mcpServers 
 // replay. It is used for idle MCP reconfiguration when initialize advertised
 // sessionCapabilities.resume.
 func (a *Adapter) ResumeSession(ctx context.Context, sessionID string, mcpServers []types.McpServer) error {
+	a.configChangeMu.Lock()
+	defer a.configChangeMu.Unlock()
 	a.mu.Lock()
 	conn := a.acpConn
 	supportsResume := a.capabilities.SessionCapabilities.Resume != nil
