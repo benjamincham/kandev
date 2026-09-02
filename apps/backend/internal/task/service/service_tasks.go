@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kandev/kandev/internal/agent/mcpconfig"
 	runtimeapi "github.com/kandev/kandev/internal/agent/runtime"
 	"github.com/kandev/kandev/internal/agentruntime"
 	v1 "github.com/kandev/kandev/pkg/api/v1"
@@ -429,6 +430,11 @@ func (s *Service) finalizeCreatedTask(ctx context.Context, prepared *preparedTas
 		}
 		if err := s.workspacePolicyAttacher.AttachWorkspacePolicy(ctx, task.ID, req.ParentID, *req.WorkspacePolicy); err != nil {
 			return CreateTaskResult{}, s.rollbackPartialTask(ctx, task.ID, fmt.Errorf("attach workspace policy: %w", err))
+		}
+	}
+	if s.mcpSelectionWriter != nil && len(req.MCPServerIDs) > 0 {
+		if err := s.mcpSelectionWriter.Replace(ctx, mcpconfig.SelectionScopeTask, task.WorkspaceID, task.ID, req.MCPServerIDs); err != nil {
+			return CreateTaskResult{}, s.rollbackPartialTask(ctx, task.ID, fmt.Errorf("persist MCP selections: %w", err))
 		}
 	}
 

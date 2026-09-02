@@ -8,6 +8,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@kandev/ui/tooltip";
 import { useTranslation } from "react-i18next";
 import { TaskCreateDependencies } from "@/components/task-create-dialog-dependencies";
 import { TaskCreatePrioritySelect } from "@/components/task-create-dialog-priority-select";
+import { MCPSelectionPicker } from "@/components/mcp/mcp-selection-picker";
+import type { MCPInheritedSelection, MCPServerDefinition } from "@/lib/types/http-mcp";
 import { cn } from "@/lib/utils";
 import type { TaskPriority } from "@/lib/types/http";
 
@@ -19,7 +21,50 @@ type TaskCreateAdvancedSettingsProps = {
   priority: TaskPriority;
   onPriorityChange: (next: TaskPriority) => void;
   dependenciesDisabled?: boolean;
+  mcpDefinitions?: MCPServerDefinition[];
+  mcpDefinitionsLoading?: boolean;
+  mcpSelectionIds?: string[];
+  onMcpSelectionIdsChange?: (ids: string[]) => void;
+  mcpInheritedSelections?: MCPInheritedSelection[];
 };
+
+function TaskCreateMCPSettingRow({
+  definitions,
+  loading,
+  selectedIds,
+  onSelectedIdsChange,
+  inherited,
+  disabled,
+}: {
+  definitions: MCPServerDefinition[];
+  loading: boolean;
+  selectedIds: string[];
+  onSelectedIdsChange: (ids: string[]) => void;
+  inherited: MCPInheritedSelection[];
+  disabled?: boolean;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className="min-w-0 md:col-span-2" data-testid="task-create-mcp-setting-row">
+      {loading ? (
+        <p className="min-h-11 rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+          {t("settings:mcpLoading")}
+        </p>
+      ) : (
+        <MCPSelectionPicker
+          definitions={definitions}
+          selectedIds={selectedIds}
+          onSelectedIdsChange={onSelectedIdsChange}
+          inherited={inherited}
+          disabled={disabled}
+          label={t("settings:mcpServers")}
+          description={t("settings:mcpSelectionDescription")}
+          testId="task-create-mcp-selection"
+        />
+      )}
+    </div>
+  );
+}
 
 export function TaskCreateAdvancedSettings({
   isCreateMode,
@@ -29,6 +74,11 @@ export function TaskCreateAdvancedSettings({
   priority,
   onPriorityChange,
   dependenciesDisabled,
+  mcpDefinitions = [],
+  mcpDefinitionsLoading = false,
+  mcpSelectionIds = [],
+  onMcpSelectionIdsChange = () => undefined,
+  mcpInheritedSelections = [],
 }: TaskCreateAdvancedSettingsProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -105,6 +155,14 @@ export function TaskCreateAdvancedSettings({
           >
             <TaskCreatePrioritySelect value={priority} onChange={onPriorityChange} />
           </div>
+          <TaskCreateMCPSettingRow
+            definitions={mcpDefinitions}
+            loading={mcpDefinitionsLoading}
+            selectedIds={mcpSelectionIds}
+            onSelectedIdsChange={onMcpSelectionIdsChange}
+            inherited={mcpInheritedSelections}
+            disabled={dependenciesDisabled}
+          />
         </div>
       </CollapsibleContent>
     </Collapsible>
