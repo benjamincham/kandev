@@ -4,7 +4,6 @@ import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { t as translate } from "@/lib/i18n";
 import { useRouter } from "@/lib/routing/client-router";
-import Link from "@/components/routing/app-link";
 import { IconGripVertical, IconArrowsShuffle } from "@tabler/icons-react";
 import {
   DndContext,
@@ -41,10 +40,6 @@ import { WorkflowDialogs } from "@/app/settings/workspace/workspace-workflows-di
 import { useWorkflowCreation } from "@/app/settings/workspace/use-workflow-creation";
 import { useWorkflowImportExport } from "@/app/settings/workspace/use-workflow-import-export";
 import { WorkspaceNotFoundCard } from "@/app/settings/workspace/workspace-not-found-card";
-import {
-  newWorkflowEditorPath,
-  workflowEditorPath,
-} from "@/components/settings/workflow-editor/workflow-editor-paths";
 
 type WorkspaceWorkflowsClientProps = {
   workspace: Workspace | null;
@@ -57,7 +52,6 @@ type WorkspaceWorkflowsClientProps = {
 const TEMP_WORKFLOW_PREFIX = "temp-workflow-";
 
 type WorkflowActionsArgs = {
-  router: ReturnType<typeof useRouter>;
   workspace: Workspace | null;
   workflowItems: Workflow[];
   savedWorkflowItems: Workflow[];
@@ -90,7 +84,6 @@ function mergeSavedWorkflow(current: Workflow, submitted: Workflow, saved: Workf
 }
 
 function useWorkflowActions({
-  router,
   workspace,
   workflowItems,
   savedWorkflowItems,
@@ -104,9 +97,6 @@ function useWorkflowActions({
     workflowItems,
     workflowTemplates,
     setWorkflowItems,
-    onCreateWorkflow: ({ name, templateId }) => {
-      if (workspace) router.push(newWorkflowEditorPath(workspace.id, { name, templateId }));
-    },
   });
 
   const handleUpdateWorkflow = (
@@ -313,8 +303,6 @@ function WorkflowList({
     () => new Map(savedWorkflowItems.map((workflow) => [workflow.id, workflow])),
     [savedWorkflowItems],
   );
-  const { t } = useTranslation();
-
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
@@ -345,17 +333,6 @@ function WorkflowList({
               readOnly={isImproveWorkspace}
             >
               <div className="min-w-0 space-y-2">
-                {!workflow.id.startsWith(TEMP_WORKFLOW_PREFIX) && (
-                  <div className="flex justify-end">
-                    <Link
-                      href={workflowEditorPath(workflow.workspace_id, workflow.id)}
-                      className="min-h-11 cursor-pointer rounded-md px-3 py-2 text-sm font-medium text-primary hover:bg-primary/10"
-                      data-testid={`edit-workflow-${workflow.id}`}
-                    >
-                      {t("workflows:editWorkflow")}
-                    </Link>
-                  </div>
-                )}
                 <WorkflowCard
                   workflow={workflow}
                   savedWorkflow={savedWorkflowsById.get(workflow.id)}
@@ -537,7 +514,6 @@ function useWorkspaceWorkflowsPage(
 
   const importExport = useWorkflowImportExport(workspace, workflowItems, router, toast);
   const actions = useWorkflowActions({
-    router,
     workspace,
     workflowItems,
     savedWorkflowItems,
