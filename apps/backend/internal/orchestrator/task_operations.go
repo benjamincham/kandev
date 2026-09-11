@@ -5180,6 +5180,10 @@ func (s *Service) PromptTask(ctx context.Context, taskID, sessionID string, prom
 }
 
 type promptTaskOptions struct {
+	// recoveryAction is populated only by the explicit context-continuation
+	// path. It allows the already-authorized prompt to cross the recovery block
+	// without reopening the ordinary launch gate.
+	recoveryAction  string
 	claimEntryID    string
 	lifecyclePrompt bool
 	afterClaim      func() error
@@ -5201,6 +5205,11 @@ type promptTaskOptions struct {
 	// attempt identity to the exact turn.
 	onAccepted              func(turnID string)
 	expectedSessionIdentity *messagequeue.QueueSessionIdentity
+	// expectedDeliveryGeneration fences an explicitly prepared continuation to
+	// the generation whose native candidate passed admission. A successor that
+	// rotates the session before the durable submission is created must force
+	// recovery instead of sending the snapshot to the wrong harness.
+	expectedDeliveryGeneration int64
 	// promptAlreadyComposed and fallbackRetryPrompt mirror the composed-prompt
 	// seam autoStartStepPrompt's own ErrExecutionNotFound branch uses (see
 	// fallbackFreshLaunchOnMissingExecution). When promptAlreadyComposed is
@@ -5337,8 +5346,10 @@ func (s *Service) promptTask(ctx context.Context, taskID, sessionID string, prom
 	if err := s.validateResumeAttempt(options.resumeAttempt); err != nil {
 		return nil, err
 	}
-	if err := s.checkSessionRecoveryBlock(ctx, sessionID); err != nil {
-		return nil, err
+	if options.recoveryAction == "" {
+		if err := s.checkSessionRecoveryBlock(ctx, sessionID); err != nil {
+			return nil, err
+		}
 	}
 
 	// Only allow prompts when the session is ready for input.
