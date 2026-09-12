@@ -10,6 +10,7 @@ import {
   clearArchiveRecovery,
   decideResumeAction,
   isTaskArchivedConflict,
+  markSessionStarting,
   resumeViaLaunch,
   resumeWithSilentFallback,
   TASK_ARCHIVED_KIND,
@@ -34,16 +35,25 @@ import {
   type TaskSessionState,
 } from "@/lib/types/http";
 import { t } from "@/lib/i18n";
+import {
+  useWorkspaceRestoration,
+  type WorkspaceRestorationResult,
+} from "./use-workspace-restoration";
 
 export type {
   ResumptionState,
   ResumeStateSetter,
+  ResumeStartingProjection,
   SessionLike,
   SessionRecoveryFailure,
   SessionStatus,
   TaskArchiveState,
 } from "./use-session-resumption-operations";
-export { resumeWithSilentFallback } from "./use-session-resumption-operations";
+export {
+  decideResumeAction,
+  markSessionStarting,
+  resumeWithSilentFallback,
+} from "./use-session-resumption-operations";
 type CheckAndResumeParams = {
   taskId: string;
   sessionId: string;
@@ -325,6 +335,7 @@ interface UseSessionResumptionReturn {
   worktreePath: string | null;
   worktreeBranch: string | null;
   resumeSession: () => Promise<boolean>;
+  workspaceRestoration: WorkspaceRestorationResult;
 }
 
 /**
@@ -541,16 +552,30 @@ function useManualResumeSession({
     const canContinue = () => isCurrentRequest(captureRequest(), capturedRequest);
     const guardedSetters = buildGuardedSettersFor(capturedRequest);
     if (!canContinue()) return false;
+    const startingProjection = markSessionStarting(taskId, sessionId, session, guardedSetters);
     guardedSetters.setResumptionState("resuming");
     guardedSetters.setError(null);
     guardedSetters.setNotice?.(null);
     guardedSetters.setRecoveryFailure?.(null);
     try {
       const response = await launchSession(buildResumeRequest(taskId, sessionId).request);
-      if (!canContinue()) return false;
-      return applyManualResumeResponse(response, taskId, sessionId, session, guardedSetters);
+      if (!canContinue()) {
+        startingProjection?.rollback();
+        return false;
+      }
+      const resumed = applyManualResumeResponse(
+        response,
+        taskId,
+        sessionId,
+        session,
+        guardedSetters,
+      );
+      if (!resumed) startingProjection?.rollback();
+      return resumed;
     } catch (error) {
-      return handleManualResumeError(error, guardedSetters, canContinue);
+      const handled = handleManualResumeError(error, guardedSetters, canContinue);
+      if (!handled) startingProjection?.rollback();
+      return handled;
     }
   }, [taskId, sessionId, taskArchiveState, session, captureRequest, buildGuardedSettersFor]);
 }
@@ -582,6 +607,7 @@ export function useSessionResumption(
   const setSessionAgentctlStatus = useAppStore((state) => state.setSessionAgentctlStatus);
   const setResumeSkipped = useAppStore((state) => state.setResumeSkipped);
   const storeApi = useAppStoreApi();
+  const workspaceRestoration = useWorkspaceRestoration(taskId, sessionId);
 
   const setters: ResumeStateSetter = {
     setResumptionState,
@@ -590,10 +616,12 @@ export function useSessionResumption(
     setWorktreePath,
     setWorktreeBranch,
     setTaskSession,
+    setTaskSessionUnscoped: setTaskSession,
     setAgentctlReady: (sid: string) => setSessionAgentctlStatus(sid, { status: "ready" }),
     setResumeSkipped,
     getLiveSession: (sid: string) => storeApi.getState().taskSessions.items[sid] ?? null,
     setRecoveryFailure,
+    workspaceRestoration: workspaceRestoration.callbacks ?? undefined,
     onTaskArchiveConflict: options.onTaskArchiveConflict,
   };
 
@@ -628,5 +656,6 @@ export function useSessionResumption(
     worktreePath,
     worktreeBranch,
     resumeSession,
+    workspaceRestoration,
   };
 }
