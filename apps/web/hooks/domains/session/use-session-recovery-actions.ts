@@ -140,11 +140,12 @@ export function useSessionRecoveryActions({
       });
     } catch (cause) {
       if (!isCurrentOperation(operation)) return;
-      setState({
-        ...createInitialRecoveryState(),
-        restoreError: asRecoveryError(cause, t("task:failedToRestoreWorkspace")),
+      const restoreError = asRecoveryError(cause, t("task:failedToRestoreWorkspace"));
+      setState((current) => ({
+        ...current,
+        restoreError,
         manualRecoveryFailure: { operation: "restore_workspace" },
-      });
+      }));
     } finally {
       if (isCurrentOperation(operation)) setState((current) => ({ ...current, busyAction: null }));
     }
