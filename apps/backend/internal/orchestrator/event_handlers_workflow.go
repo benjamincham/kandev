@@ -7190,7 +7190,17 @@ func (s *Service) processOnTurnCompleteViaEngineWithCause(
 	if cause == turnCompletionCauseUserCancellation {
 		ctx = cancellationTransitionAttribution(ctx)
 	}
-	return s.applyEngineTransitionWithMode(ctx, taskID, session, result, engine.TriggerOnTurnComplete, task.Description, transitionLifecycleWithOnEnter)
+	applied := s.applyEngineTransitionWithMode(ctx, taskID, session, result, engine.TriggerOnTurnComplete, task.Description, transitionLifecycleWithOnEnter)
+	if applied && result.OperationMarkDeferred {
+		if err := s.workflowStore.MarkOperationApplied(ctx, operationID); err != nil {
+			s.logger.Warn("failed to mark on_turn_complete operation applied",
+				zap.String("task_id", taskID),
+				zap.String("session_id", session.ID),
+				zap.String("operation_id", operationID),
+				zap.Error(err))
+		}
+	}
+	return applied
 }
 
 // acquireTurnCompletionCriticalSection serializes on_turn_complete
@@ -7789,5 +7799,15 @@ func (s *Service) processOnTurnStartViaEngine(ctx context.Context, taskID string
 		zap.String("to_step_id", result.ToStepID))
 
 	// on_turn_start does NOT trigger on_enter (user's message is the next prompt).
-	return s.applyEngineTransitionWithMode(ctx, taskID, session, result, engine.TriggerOnTurnStart, "", transitionLifecycleOnTurnStart)
+	applied := s.applyEngineTransitionWithMode(ctx, taskID, session, result, engine.TriggerOnTurnStart, "", transitionLifecycleOnTurnStart)
+	if applied && result.OperationMarkDeferred {
+		if err := s.workflowStore.MarkOperationApplied(ctx, operationID); err != nil {
+			s.logger.Warn("failed to mark on_turn_start operation applied",
+				zap.String("task_id", taskID),
+				zap.String("session_id", session.ID),
+				zap.String("operation_id", operationID),
+				zap.Error(err))
+		}
+	}
+	return applied
 }
