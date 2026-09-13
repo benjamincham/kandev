@@ -29,6 +29,8 @@ import {
 import { AddRepositoryButton } from "@/components/task-create-dialog-add-repository-button";
 import { useTranslation } from "react-i18next";
 import { RepositoryDiscoveryControls } from "@/components/repository-discovery-controls";
+import { cn } from "@/lib/utils";
+import { useTouchDrawer } from "@/hooks/use-compact-task-chrome";
 
 type WorkspaceRepoChipsProps = {
   rows: TaskRepoRow[];
@@ -573,6 +575,7 @@ function RepoChipContent({
 
 function RepoChipRemoveButton({ onRemove }: { onRemove: () => void }) {
   const { t } = useTranslation();
+  const usesTouchDrawer = useTouchDrawer();
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -580,7 +583,10 @@ function RepoChipRemoveButton({ onRemove }: { onRemove: () => void }) {
           type="button"
           onClick={onRemove}
           aria-label={t("task:removeRepository")}
-          className="h-6 w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-muted/60 cursor-pointer"
+          className={cn(
+            "h-6 w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-muted/60 cursor-pointer",
+            usesTouchDrawer && "min-h-11 min-w-11",
+          )}
           data-testid="remove-repo-chip"
         >
           <IconX className="h-3 w-3" />

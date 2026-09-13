@@ -8,14 +8,15 @@ export type TaskRemoteProviderReadiness = "loading" | "ready" | "unavailable" | 
 export type TaskRemoteProviderReadinessMap = Readonly<Record<string, TaskRemoteProviderReadiness>>;
 
 /**
- * Picker rows depend on the provider connection that supplied their identity.
- * Pasted URLs stay provider-neutral until their normal URL inspection completes.
+ * Rows with a provider descriptor depend on that provider's connection.
+ * Anonymous pasted URLs stay provider-neutral until their normal URL
+ * inspection completes.
  */
 export function isPickerRemoteProviderUnavailable(
   row: TaskRemoteRepoRow,
   readiness: TaskRemoteProviderReadinessMap | undefined,
 ): boolean {
-  if (!readiness || row.source !== "picker" || !row.provider) return false;
+  if (!readiness || !row.provider) return false;
   return readiness[row.provider] !== "ready";
 }
 

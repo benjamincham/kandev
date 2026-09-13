@@ -15,6 +15,7 @@ import { useUtilityAgentGenerator } from "@/hooks/use-utility-agent-generator";
 import type { Repository } from "@/lib/types/http";
 import { hasUnavailablePickerRemoteProvider } from "@/components/task-create-dialog-remote-provider-readiness";
 import { resolveRepositorySelections } from "@/components/task-create-dialog-repositories-state";
+import type { TaskRepositorySelection } from "@/components/task-create-dialog-types";
 import type { SubtaskWorkspaceMode, useSubtaskFormState } from "./new-subtask-form-state";
 import { toContextItems, useDialogAttachments } from "./session-dialog-shared";
 import { t } from "@/lib/i18n";
@@ -58,6 +59,23 @@ type CreateSubtaskArgs = {
   setActiveTask: (taskId: string) => void;
   setActiveSession: (taskId: string, sessionId: string) => void;
 };
+
+export function shouldSubmitFreshBranch({
+  selections,
+  freshBranchEnabled,
+  workspaceMode,
+  isLocalExecutor,
+}: {
+  selections: TaskRepositorySelection[];
+  freshBranchEnabled: boolean;
+  workspaceMode: SubtaskWorkspaceMode;
+  isLocalExecutor: boolean;
+}): boolean {
+  if (!freshBranchEnabled || workspaceMode !== "new_workspace" || !isLocalExecutor) return false;
+  if (selections.length !== 1) return false;
+  const selection = selections[0];
+  return selection.kind === "local" && Boolean(selection.repositoryId || selection.localPath);
+}
 
 async function createSubtask({
   fs,
@@ -143,15 +161,10 @@ export function useSubtaskSubmit(opts: UseSubtaskSubmitOpts) {
     workspaceMode,
     isLocalExecutor = false,
   } = opts;
-  const freshBranchEnabled = fs.freshBranchEnabled;
   const { toast } = useToast();
   const setActiveTask = useAppStore((s) => s.setActiveTask);
   const setActiveSession = useAppStore((s) => s.setActiveSession);
-  // Synchronous guard: setIsCreating(true) won't reflect into the disabled
-  // submit button until React commits, so a fast double-submit (Enter + click,
-  // double-click) can re-enter handleSubmit and call createTask twice.
   const isSubmittingRef = useRef(false);
-
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
@@ -169,7 +182,6 @@ export function useSubtaskSubmit(opts: UseSubtaskSubmitOpts) {
       ) {
         return;
       }
-
       isSubmittingRef.current = true;
       setIsCreating(true);
       try {
@@ -187,7 +199,12 @@ export function useSubtaskSubmit(opts: UseSubtaskSubmitOpts) {
           autopilot,
           workspaceMode,
           isLocalExecutor,
-          freshBranchEnabled,
+          freshBranchEnabled: shouldSubmitFreshBranch({
+            selections: resolveRepositorySelections(fs),
+            freshBranchEnabled: fs.freshBranchEnabled,
+            workspaceMode,
+            isLocalExecutor,
+          }),
           onClose,
           setActiveTask,
           setActiveSession,
@@ -219,7 +236,6 @@ export function useSubtaskSubmit(opts: UseSubtaskSubmitOpts) {
       setActiveSession,
       workspaceMode,
       isLocalExecutor,
-      freshBranchEnabled,
       setIsCreating,
       onClose,
       toast,

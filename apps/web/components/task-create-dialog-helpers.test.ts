@@ -264,7 +264,7 @@ describe("auto-title creation helpers", () => {
     ).toBe(true);
   });
 
-  it("blocks unavailable picker providers while allowing pasted remote URLs", () => {
+  it("blocks provider-owned rows while allowing anonymous pasted remote URLs", () => {
     const pickerRow = {
       key: "remote-1",
       url: "https://bitbucket.example.test/acme/app",
@@ -273,6 +273,7 @@ describe("auto-title creation helpers", () => {
       provider: "bitbucket",
     } as TaskRemoteRepoRow;
     const pastedRow = { ...pickerRow, source: "paste" as const };
+    const anonymousPastedRow = { ...pastedRow, provider: undefined };
 
     expect(
       validateCreateInputs({
@@ -287,6 +288,14 @@ describe("auto-title creation helpers", () => {
         ...base,
         repositories: [],
         selections: [{ kind: "remote", ...pastedRow }],
+        remoteProviderReadiness: { bitbucket: "unavailable" },
+      }),
+    ).toBe(false);
+    expect(
+      validateCreateInputs({
+        ...base,
+        repositories: [],
+        selections: [{ kind: "remote", ...anonymousPastedRow }],
         remoteProviderReadiness: { bitbucket: "unavailable" },
       }),
     ).toBe(true);

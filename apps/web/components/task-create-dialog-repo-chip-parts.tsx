@@ -245,6 +245,7 @@ export function RepoChipRepositoryPill({
       emptyMessage={t("task:noRepositories")}
       testId="repo-chip-trigger"
       tooltip={repoTooltip}
+      mobileTitle={t("common:repository")}
       action={buildCreateRepositoryAction(onCreateRepository)}
       onRefresh={onRefreshRepositories}
       refreshing={repositoriesRefreshing}
@@ -294,6 +295,7 @@ export function RepoChipBranchPill({
       emptyMessage={t("task:noBranches")}
       testId="branch-chip-trigger"
       tooltip={computeBranchTooltip(branchIntent)}
+      mobileTitle={t("task:branch")}
       onRefresh={refreshBranches}
       refreshing={branchesLoading}
       filter={scoreBranch}
@@ -339,6 +341,7 @@ export function RepoChipBaseBranchPill({
       emptyMessage={t("task:noBranches")}
       testId="repo-chip-base-branch"
       tooltip={t("workspaces:repositorySetsBaseBranchLabel")}
+      mobileTitle={t("task:branch")}
       onRefresh={refreshBranches}
       refreshing={branchesLoading}
       filter={scoreBranch}
