@@ -687,11 +687,11 @@ func buildSSHCreateInstanceRequest(
 		BaseBranches:               getMetadataStringMap(req.Metadata, MetadataKeyBaseBranches),
 		RemoteContributions:        req.RemoteContributions,
 		ContributionDestinations:   req.ContributionDestinations,
-		ComparisonTargets:           req.ComparisonTargets,
-		DeliveryStreamID:            req.DeliveryStreamID,
-		DeliveryIncarnationID:       req.DeliveryIncarnationID,
-		DeliveryHarnessGeneration:   req.DeliveryHarnessGeneration,
-		Env:                         selectedCheckoutAgentEnv(sshRemoteContributionEnv(req, agentctlBin), req.Metadata),
+		ComparisonTargets:          req.ComparisonTargets,
+		DeliveryStreamID:           req.DeliveryStreamID,
+		DeliveryIncarnationID:      req.DeliveryIncarnationID,
+		DeliveryHarnessGeneration:  req.DeliveryHarnessGeneration,
+		Env:                        selectedCheckoutAgentEnv(sshRemoteContributionEnv(req, agentctlBin), req.Metadata),
 	}
 	if req.DurableJournalOwnerID != "" {
 		// The SSH task directory is the stable remote environment. Keep the

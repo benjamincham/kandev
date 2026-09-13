@@ -494,11 +494,11 @@ func spriteCreateInstanceRequest(req *ExecutorCreateRequest) agentctl.CreateInst
 		BaseBranches:               getMetadataStringMap(req.Metadata, MetadataKeyBaseBranches),
 		RemoteContributions:        req.RemoteContributions,
 		ContributionDestinations:   req.ContributionDestinations,
-		ComparisonTargets:           req.ComparisonTargets,
-		DeliveryStreamID:            req.DeliveryStreamID,
-		DeliveryIncarnationID:       req.DeliveryIncarnationID,
-		DeliveryHarnessGeneration:   req.DeliveryHarnessGeneration,
-		Env:                         selectedCheckoutAgentEnv(req.Env, req.Metadata),
+		ComparisonTargets:          req.ComparisonTargets,
+		DeliveryStreamID:           req.DeliveryStreamID,
+		DeliveryIncarnationID:      req.DeliveryIncarnationID,
+		DeliveryHarnessGeneration:  req.DeliveryHarnessGeneration,
+		Env:                        selectedCheckoutAgentEnv(req.Env, req.Metadata),
 	}
 }
 
