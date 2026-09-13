@@ -7,9 +7,12 @@ import {
   contextContinuationDetails,
   requestSessionRecover,
   restoreSessionWorkspace,
+  sessionRecoveryGuardDetails,
+  sessionRecoveryGuardMessage,
   type BranchRecoveryDetails,
   type ContextContinuationDetails,
   type SessionRecoveryAction,
+  type SessionRecoveryGuardDetails,
 } from "@/lib/services/session-recovery-service";
 
 export type SessionRecoveryBusyAction = SessionRecoveryAction | "restore" | null;
@@ -30,6 +33,7 @@ type RecoveryViewState = {
   restoreError: Error | null;
   branchDetails: BranchRecoveryDetails | null;
   continuationDetails: ContextContinuationDetails | null;
+  guardDetails: SessionRecoveryGuardDetails | null;
   lastFailedAction: SessionRecoveryAction | null;
   recoveryNotice: string | null;
   manualRecoveryFailure: ManualSessionRecoveryFailure | null;
@@ -42,6 +46,7 @@ function createInitialRecoveryState(): RecoveryViewState {
     restoreError: null,
     branchDetails: null,
     continuationDetails: null,
+    guardDetails: null,
     lastFailedAction: null,
     recoveryNotice: null,
     manualRecoveryFailure: null,
@@ -60,6 +65,16 @@ function combineRecoveryErrors(
       restoreError: restoreError.message,
     }),
   );
+}
+
+function guardOrFallbackError(
+  cause: unknown,
+  guard: SessionRecoveryGuardDetails | null,
+  translate: TFunction,
+  fallback: string,
+): Error {
+  if (guard) return new Error(sessionRecoveryGuardMessage(guard, translate));
+  return asRecoveryError(cause, fallback);
 }
 
 /** Owns shared manual recovery state while a failed session remains visible. */
@@ -110,11 +125,13 @@ export function useSessionRecoveryActions({
         setState(createInitialRecoveryState);
       } catch (cause) {
         if (!isCurrentOperation(operation)) return false;
+        const guard = sessionRecoveryGuardDetails(cause);
         setState({
           ...createInitialRecoveryState(),
-          resumeError: asRecoveryError(cause, t("task:failedToResumeSession")),
-          branchDetails: branchRecoveryDetails(cause),
-          continuationDetails: contextContinuationDetails(cause),
+          resumeError: guardOrFallbackError(cause, guard, t, t("task:failedToResumeSession")),
+          branchDetails: guard ? null : branchRecoveryDetails(cause),
+          continuationDetails: guard ? null : contextContinuationDetails(cause),
+          guardDetails: guard,
           lastFailedAction: action,
           manualRecoveryFailure: { operation: "resume" },
         });
@@ -141,9 +158,11 @@ export function useSessionRecoveryActions({
     } catch (cause) {
       if (!isCurrentOperation(operation)) return;
       const restoreError = asRecoveryError(cause, t("task:failedToRestoreWorkspace"));
+      const guard = sessionRecoveryGuardDetails(cause);
       setState((current) => ({
         ...current,
-        restoreError,
+        restoreError: guardOrFallbackError(cause, guard, t, restoreError.message),
+        guardDetails: guard ?? current.guardDetails,
         manualRecoveryFailure: { operation: "restore_workspace" },
       }));
     } finally {
@@ -168,6 +187,7 @@ export function useSessionRecoveryActions({
     recoveryError,
     branchDetails: state.branchDetails,
     continuationDetails: state.continuationDetails,
+    guardDetails: state.guardDetails,
     recoveryNotice: state.recoveryNotice,
     manualRecoveryFailure: state.manualRecoveryFailure,
     handleRecover,
