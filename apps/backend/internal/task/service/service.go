@@ -468,11 +468,7 @@ type Service struct {
 	baseBranchPusher            AgentBaseBranchPusher
 	comparisonTargetPusher      AgentComparisonTargetPusher
 	runtimeOverridesMu          sync.Mutex
-	// dependencyEdgeMu serializes validate-then-insert for dependency edges so
-	// two concurrent adds cannot each pass a cycle walk that predates the
-	// other's insert and commit a cycle between them.
-	dependencyEdgeMu       sync.Mutex
-	mcpSelectionWriter     MCPSelectionWriter
+	mcpSelectionWriter          MCPSelectionWriter
 
 	workspaceSourceProviderRefresher WorkspaceSourceProviderRefresher
 

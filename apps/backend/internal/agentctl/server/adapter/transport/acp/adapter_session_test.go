@@ -15,16 +15,16 @@ import (
 )
 
 type sessionRequestCaptureAgent struct {
-	newRequest   acpsdk.NewSessionRequest
-	loadRequest  acpsdk.LoadSessionRequest
+	newRequest    acpsdk.NewSessionRequest
+	loadRequest   acpsdk.LoadSessionRequest
 	resumeRequest acpsdk.ResumeSessionRequest
-	newStarted   chan struct{}
-	releaseNew   chan struct{}
-	newCalls     chan struct{}
-	closeStarted chan struct{}
+	newStarted    chan struct{}
+	releaseNew    chan struct{}
+	newCalls      chan struct{}
+	closeStarted  chan struct{}
 	releaseClose chan struct{}
-	closeCalls   chan struct{}
-	loadStarted  chan struct{}
+	closeCalls    chan struct{}
+	loadStarted   chan struct{}
 
 	mu                      sync.Mutex
 	closeStartedOnce        sync.Once

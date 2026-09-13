@@ -117,16 +117,11 @@ function useLinearImportHandler(
   );
 }
 
-function useEditDialogDependencies(
-  open: boolean,
-  isEditMode: boolean,
-  workspaceId: string | null | undefined,
-  taskId: string | null | undefined,
-) {
+function useEditDialogDependencies(props: TaskCreateDialogProps, isEditMode: boolean) {
   return useTaskEditDialogDependencies({
-    open: open && isEditMode,
-    workspaceId,
-    taskId,
+    open: props.open && isEditMode,
+    workspaceId: props.workspaceId,
+    taskId: props.taskId ?? props.editingTask?.id ?? null,
   });
 }
 
@@ -407,26 +402,34 @@ function useDialogSetupData(
   };
 }
 
-function useTaskCreateDialogInteractionSetup(args: SubmitWiringArgs) {
-  const { props, fs, computed } = args;
-  const submitHandlers = useSubmitHandlersWiring(args);
-  const guardedHandleSubmit = useGuardedSubmit(
-    submitHandlers.handleSubmit,
-    props.submitBlockedReason,
-  );
-  const handleKeyDown = useKeyboardShortcutHandler(SHORTCUTS.SUBMIT, (event) => {
-    guardedHandleSubmit(event as unknown as FormEvent);
+function useMCPSetupForDialog(
+  props: TaskCreateDialogProps,
+  fs: DialogFormState,
+  isSessionMode: boolean,
+  effectiveAgentProfileId: string,
+) {
+  return useTaskCreateDialogMCPSetup({
+    open: props.open,
+    workspaceId: props.workspaceId,
+    openCycle: fs.openCycle,
+    isSessionMode,
+    taskId: props.taskId ?? props.editingTask?.id ?? null,
+    effectiveAgentProfileId,
+    repositories: fs.repositories,
+    mcpServerIdsDirty: fs.mcpServerIdsDirty,
+    setMcpServerIds: fs.setMcpServerIds,
+    setMcpServerIdsDirty: fs.setMcpServerIdsDirty,
   });
-  const enhance = useEnhanceForDialog(fs, props.taskId, props.open);
-  const freshBranchAvailable =
-    !fs.useRemote && computed.isLocalExecutor && fs.repositories.length === 1;
-  return {
-    submitHandlers,
-    guardedHandleSubmit,
-    handleKeyDown,
-    enhance,
-    freshBranchAvailable,
-  };
+}
+
+function useRepositorySetsForSetup(
+  props: TaskCreateDialogProps,
+  fs: DialogFormState,
+  repositories: Repository[],
+  computed: ReturnType<typeof useTaskCreateDialogData>["computed"],
+  userSettingsLoaded: boolean,
+) {
+  return useDialogRepositorySets(props, fs, repositories, computed, userSettingsLoaded);
 }
 
 export function useTaskCreateDialogSetup(
@@ -454,12 +457,7 @@ export function useTaskCreateDialogSetup(
     initialValues,
     resolvedProps.lockedFields?.workflow === true,
   );
-  const editDependencies = useEditDialogDependencies(
-    open,
-    isEditMode,
-    workspaceId,
-    editingTask?.id ?? null,
-  );
+  const editDependencies = useEditDialogDependencies(resolvedProps, isEditMode);
   const sessionRepoName = useSessionRepoName(isSessionMode);
   const data = useDialogSetupData(resolvedProps, fs);
   const {
@@ -470,18 +468,12 @@ export function useTaskCreateDialogSetup(
     refreshBranchPolicies,
     savedBaseSubmitBlockedReason,
   } = data;
-  const mcp = useTaskCreateDialogMCPSetup({
-    open: resolvedProps.open,
-    workspaceId,
-    openCycle: fs.openCycle,
+  const mcp = useMCPSetupForDialog(
+    resolvedProps,
+    fs,
     isSessionMode,
-    taskId: resolvedProps.taskId ?? resolvedProps.editingTask?.id ?? null,
-    effectiveAgentProfileId: computed.effectiveAgentProfileId,
-    repositories: fs.repositories,
-    mcpServerIdsDirty: fs.mcpServerIdsDirty,
-    setMcpServerIds: fs.setMcpServerIds,
-    setMcpServerIdsDirty: fs.setMcpServerIdsDirty,
-  });
+    computed.effectiveAgentProfileId,
+  );
   const submitHandlers = useSubmitHandlersWiring({
     props: resolvedProps,
     fs,
@@ -508,7 +500,7 @@ export function useTaskCreateDialogSetup(
   const handleJiraImport = useJiraImportHandler(fs, data.handlers.handleTaskNameChange);
   const handleLinearImport = useLinearImportHandler(fs, data.handlers.handleTaskNameChange);
   const freshBranchAvailable = canUseFreshBranch(fs, computed.isLocalExecutor);
-  const repositorySets = useDialogRepositorySets(
+  const repositorySets = useRepositorySetsForSetup(
     resolvedProps,
     fs,
     repositories,
