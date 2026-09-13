@@ -236,4 +236,41 @@ describe("useRepositoryAutoSelectEffect reducer integration", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(result.current.repositories).toEqual([]);
   });
+
+  it("does not hydrate a local row after a remote preset is restored", async () => {
+    const repository = makeRepository("repo-1");
+    const { result } = renderHook(() => {
+      const selectionState = useRepositorySelectionState();
+      useRepositoryAutoSelectEffect(
+        {
+          ...selectionState,
+          noRepository: false,
+          useRemote: false,
+        } as unknown as DialogFormState,
+        true,
+        "ws-1",
+        [repository],
+      );
+      return selectionState;
+    });
+
+    act(() => {
+      result.current.hydrateRepositorySelections([
+        {
+          kind: "remote",
+          key: "remote-0",
+          url: "https://github.com/acme/remote",
+          branch: "main",
+          source: "paste",
+        },
+      ]);
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(result.current.repositorySelections).toEqual([
+      expect.objectContaining({ kind: "remote", key: "remote-0" }),
+    ]);
+    expect(result.current.repositories).toEqual([]);
+    expect(result.current.repositorySelectionsTouched).toBe(false);
+  });
 });

@@ -198,6 +198,10 @@ test.describe("Task creation with branch policies", () => {
       );
 
       await dialog.getByTestId("add-repository").click();
+      await dialog
+        .getByTestId("task-repository-local-option")
+        .filter({ hasText: secondRepositoryName })
+        .click();
       const repositoryChips = dialog.getByTestId("repo-chip-trigger");
       await expect(repositoryChips).toHaveCount(2);
       await repositoryChips.nth(1).click();

@@ -110,10 +110,12 @@ export function repositorySelectionsFromInitialValues(
         "",
       branchPolicyId: repository.branch_policy_id,
     }));
-  return [
+  const selections = [
     ...localRows.map((row) => ({ kind: "local" as const, ...row })),
     ...remoteSelectionsFromInitialValues(initialValues),
   ];
+  if (selections.length > 0 || initialValues?.noRepository) return selections;
+  return [{ kind: "local", key: "row-0", branch: "" }];
 }
 
 /** Converts a legacy URL preset into the remote row shape used by the picker. */

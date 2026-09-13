@@ -198,4 +198,13 @@ describe("local repository selections", () => {
       branch: "",
     });
   });
+
+  it("uses the repository default for a non-local executor", () => {
+    expect(
+      buildLocalRepositorySelection({ repositoryId: "repo-1", defaultBranch: "develop" }, true),
+    ).toEqual({ kind: "local", repositoryId: "repo-1", branch: "" });
+    expect(
+      buildLocalRepositorySelection({ repositoryId: "repo-1", defaultBranch: "develop" }, false),
+    ).toEqual({ kind: "local", repositoryId: "repo-1", branch: "develop" });
+  });
 });

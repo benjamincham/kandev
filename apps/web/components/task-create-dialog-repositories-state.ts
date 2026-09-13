@@ -92,7 +92,9 @@ export function repositorySelectionReducer(
   }
 
   if (action.type === "hydrate-local") {
-    if (state.touched) return state;
+    if (state.touched || state.selections.some((selection) => selection.kind === "remote")) {
+      return state;
+    }
     const current = state.selections.filter((selection) => selection.kind === "local");
     const rows = resolveSelectionUpdater(action.rows, current);
     return replaceKind(state, "local", rows, false);

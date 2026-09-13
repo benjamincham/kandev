@@ -61,15 +61,16 @@ export type MixedRepositoryChipsProps = {
   repositorySets?: React.ReactNode;
 };
 
-/** Keeps a newly picked local row open for executor-aware branch selection. */
+/** Preserves local checkout selection and seeds worktree rows from the repo default. */
 export function buildLocalRepositorySelection(
   choice: LocalRepositoryChoice,
+  isLocalExecutor?: boolean,
 ): Omit<Extract<TaskRepositorySelection, { kind: "local" }>, "key"> {
   return {
     kind: "local",
     ...(choice.repositoryId ? { repositoryId: choice.repositoryId } : {}),
     ...(choice.localPath ? { localPath: choice.localPath } : {}),
-    branch: "",
+    branch: isLocalExecutor === false ? (choice.defaultBranch ?? "") : "",
   };
 }
 
@@ -84,7 +85,12 @@ export function MixedRepositoryChips(props: MixedRepositoryChipsProps) {
   useRemoteProviderReadiness(props.fs, accessible);
 
   useRemoteRowResolution(props.fs, remoteRows);
-  const actions = useMixedRepositoryActions(props.fs, selections.length, props.onCreateRepository);
+  const actions = useMixedRepositoryActions(
+    props.fs,
+    selections.length,
+    props.isLocalExecutor,
+    props.onCreateRepository,
+  );
   const selectionRows = (
     <RepositorySelectionRows
       selections={selections}
@@ -289,6 +295,7 @@ function RepositorySelectionFolder({
 function useMixedRepositoryActions(
   fs: DialogFormState,
   selectionCount: number,
+  isLocalExecutor: boolean,
   onCreateRepository?: (key: string) => void,
 ) {
   const appendSelection = fs.appendRepositorySelection;
@@ -296,14 +303,12 @@ function useMixedRepositoryActions(
     (choice: LocalRepositoryChoice) => {
       fs.setNoRepository(false);
       if (appendSelection) {
-        // Leave branch empty so the row's executor-aware autoselector can
-        // preserve the current checkout for local execution.
-        appendSelection(buildLocalRepositorySelection(choice));
+        appendSelection(buildLocalRepositorySelection(choice, isLocalExecutor));
         return;
       }
       fs.addRepository();
     },
-    [appendSelection, fs.addRepository, fs.setNoRepository],
+    [appendSelection, fs.addRepository, fs.setNoRepository, isLocalExecutor],
   );
   const addRemote = useCallback(
     (repository: RemoteRepository) => {
