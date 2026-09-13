@@ -6,6 +6,7 @@ import {
   NOTICE_SELECTOR,
   watchPlanCommentMigrationNotice,
 } from "../../helpers/plan-comment-migration";
+import { watchWs } from "../../helpers/causal-waits";
 import { waitForStableActiveSession } from "../../helpers/session-store";
 import type { ApiClient } from "../../helpers/api-client";
 import type { SeedData } from "../../fixtures/test-base";
@@ -79,7 +80,9 @@ test.describe("task-owned plan comments", () => {
     seedData,
   }) => {
     test.setTimeout(150_000);
+    const ws = watchWs(testPage);
     const markerKey = await watchPlanCommentMigrationNotice(testPage);
+    const initialCommentsList = ws.waitForResponse("task.plan.comments.list");
     const task = await apiClient.createTaskWithAgent(
       seedData.workspaceId,
       "Quiet plan comment restoration",
@@ -96,15 +99,31 @@ test.describe("task-owned plan comments", () => {
     const session = new SessionPage(testPage);
     await session.waitForLoad();
     await expect.poll(() => apiClient.getTaskPlan(task.id), { timeout: 30_000 }).not.toBeNull();
+    await initialCommentsList;
     await session.waitForChatIdle({ timeout: 45_000 });
     await expect(testPage.locator(`${NOTICE_SELECTOR}:visible`)).toHaveCount(0);
     expect(await migrationNoticeWasVisible(testPage, markerKey)).toBe(false);
 
+    const reloadedCommentsList = ws.waitForResponse("task.plan.comments.list");
     await testPage.reload();
     await session.waitForLoad();
+    await reloadedCommentsList;
     await session.waitForChatIdle({ timeout: 45_000 });
     await expect(testPage.locator(`${NOTICE_SELECTOR}:visible`)).toHaveCount(0);
     expect(await migrationNoticeWasVisible(testPage, markerKey)).toBe(false);
+
+    if (!task.session_id) throw new Error("expected a primary session");
+    const readyMessage = "Confirm plan comment restoration is ready";
+    await session.sendMessage(readyMessage);
+    await expect
+      .poll(
+        async () =>
+          (await apiClient.listSessionMessages(task.session_id as string)).messages.some(
+            (message) => message.author_type === "user" && message.content.includes(readyMessage),
+          ),
+        { timeout: 30_000 },
+      )
+      .toBe(true);
   });
 
   // @covers AC-TASKS-PLAN-COMMENTS-001.2

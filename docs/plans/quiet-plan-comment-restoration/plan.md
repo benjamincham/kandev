@@ -134,17 +134,17 @@ specifications listed below.
 
 ## Tests
 
-All proposed test names belong to Task 01. Implementation uses TDD.
+Task 01 uses TDD and records the implemented coverage below.
 
-| Criteria | Test file and proposed evidence |
-| --- | --- |
-| `.5`, `.6` | `use-plan-comment-migration.test.tsx`: `checks an empty legacy scan without claiming restoration`; hold snapshot pending and assert `checking`, blocked delivery, then completion |
-| `.5`, `.7` | Same hook file: `ignores non-plan and other-task records`; include mixed storage and a fresh store after prior migration |
-| `.6` | Same hook file: `shows migration only after discovering legacy rows`; defer create and final list separately |
-| `.6` | Same hook file: `retries silently until remaining legacy rows are known`; cover partial failure, empty retry, and prerequisite/list errors |
-| `.6` | Same hook file: `deduplicates checking runs and ignores stale plan settlement`; use concurrent mounts/StrictMode and a plan identity change |
-| `.5` through `.7` | New `plan-comment-migration-notice.test.tsx`: `renders nothing for idle checking and complete`; cover running status, failure alert and Retry, and missing-plan notice |
-| `.1` through `.4`, `.6` | Existing persistence, Run, structured-chat, and passthrough tests retain lossless migration and delivery barriers; add `checking` cases to existing gate tests |
+| Criteria                | Test file and evidence                                                                                                                                                                                                                                                                       |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.5`, `.6`              | `use-plan-comment-migration.test.tsx`: `checks an empty legacy scan without claiming restoration`; hold snapshot pending and assert `checking`, blocked delivery, then completion                                                                                                            |
+| `.5`, `.7`              | Same hook file: `migrates every known session row by UUID and preserves non-plan records`; mixed storage, selective acknowledgement, and server snapshot preservation                                                                                                                        |
+| `.6`                    | Same hook file: `keeps migration running while a legacy row is being created` and `keeps migration running while the final snapshot is pending`; defer create and final list separately, assert `running` and blocked delivery, then completion                                              |
+| `.6`                    | Same hook file: `keeps retry prerequisite checks silent until the next scan is known`, `surfaces session discovery failure and force reloads on retry`, and `surfaces current-plan load failure and clears it on retry`; cover retry prerequisite, empty retry, and prerequisite/list errors |
+| `.6`                    | Same hook file: `deduplicates an empty scan across mounted migration consumers` and `ignores an empty scan settlement after the current plan is replaced`; cover duplicate mounts and stale plan settlement                                                                                  |
+| `.5` through `.7`       | New `plan-comment-migration-notice.test.tsx`: `renders nothing for idle checking and complete`; cover running status, failure alert and Retry, and missing-plan notice                                                                                                                       |
+| `.1` through `.4`, `.6` | Existing persistence, Run, structured-chat, and passthrough tests retain lossless migration and delivery barriers; add `checking` cases to existing gate tests                                                                                                                               |
 
 The first RED assertions are the idle notice component case and the deferred
 empty-scan hook case. Current code shows a notice and reports `running`.
@@ -154,12 +154,14 @@ empty-scan hook case. Current code shows a notice and reports `running`.
 Extend existing suites without replacing their delivery and migration scenarios:
 
 - `apps/web/e2e/tests/session/task-plan-comments.spec.ts`, project `chromium`:
-  `refreshes without false restoration progress`. Observe initial mount and
-  reload with no legacy rows, including a backend-owned pending comment.
+  `stays silent across desktop refresh when no legacy comments exist`. Observe
+  the initial mount and reload through the causal comment-list responses, then
+  complete a successful user Send after readiness.
 - `apps/web/e2e/tests/session/mobile-task-plan-comments.spec.ts`, project
-  `mobile-chrome`: the same no-legacy reload result through the phone Chat and
-  Plan navigation. Extend the existing migration scenario to prove that a later
-  reload stays silent after acknowledged legacy rows disappear.
+  `mobile-chrome`: the quiet case covers Chat and Plan refresh, causal
+  readiness, and a successful Send. The migration case performs a fresh
+  post-migration reload, verifies no restoration flash, backend comments, and
+  the retained diff row, then runs its existing Send/Run flow.
 
 Both cover `.5` through `.7`. Keep their existing selected-session Send,
 primary-session Run, storage preservation, and touch assertions.
@@ -177,14 +179,14 @@ Unit/component tests own the deterministic pending-state RED evidence.
 
 ## Verification results
 
-Implementation and design checks passed on 2026-09-13:
+Implementation and review follow-up checks passed on 2026-09-13:
 
-- The exact Task 01 Vitest block: 7 files and 84 tests passed.
+- The exact Task 01 Vitest block: 7 files and 86 tests passed, including deferred create and final-snapshot migration cases.
 - `pnpm run typecheck`: passed.
 - Targeted ESLint for all changed frontend, test, helper, and E2E files: passed with zero warnings.
 - `pnpm run i18n:ratchet`: 0 added and 3 modified files clean; 644 guard entries intact.
-- Desktop managed E2E: 2 tests passed for the Chromium task plan-comment suite.
-- Mobile managed E2E: 2 tests passed for the mobile task plan-comment suite.
+- Desktop managed E2E: 2 tests passed for the Chromium task plan-comment suite, including causal readiness and a successful post-refresh Send.
+- Mobile managed E2E: 2 tests passed for the mobile task plan-comment suite, including causal readiness, a post-migration reload, preserved context, and the existing Send/Run flow.
 - `python3 scripts/list-docs.py validate`: 266 decisions and 840 specifications.
 - `python3 scripts/lint-spec-files.py --all`: all specification files passed.
 - Prettier check and `git diff --check`: passed.
@@ -206,4 +208,5 @@ The superseded session-switch package retains its original scope.
 
 Public docs review found no restoration-banner instructions or screenshots to
 change. The existing task guide describes comment ownership and delivery, which
-remain unchanged. This package changes implementation intent only.
+remain unchanged. This package records implementation and review follow-up
+coverage; no public documentation changes were needed.

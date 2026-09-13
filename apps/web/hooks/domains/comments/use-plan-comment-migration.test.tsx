@@ -241,6 +241,57 @@ describe("usePlanCommentMigration", () => {
     });
   });
 
+  it("keeps migration running while a legacy row is being created", async () => {
+    const legacy = legacyPlanComment("comment-1", "session-1");
+    const diff = diffComment();
+    const createResponse = deferred<TaskPlanCommentSnapshot>();
+    writeSession("session-1", [legacy, diff]);
+    useCommentsStore.getState().hydrateSession("session-1");
+    api.createTaskPlanComment.mockReturnValue(createResponse.promise);
+    api.getTaskPlanComments.mockResolvedValue(snapshot([serverComment(legacy)]));
+
+    const { result } = renderHook(useHarness, { wrapper });
+    act(() => result.current.store.getState().setTaskPlan(TASK_ID, taskPlan));
+
+    await waitFor(() => expect(api.createTaskPlanComment).toHaveBeenCalledWith(expect.anything()));
+    expect(result.current.migration.status).toBe("running");
+    expect(result.current.migration.isReady).toBe(false);
+    expect(result.current.migration.isBlocking).toBe(true);
+    expect(api.getTaskPlanComments).not.toHaveBeenCalled();
+
+    await act(async () => {
+      createResponse.resolve(snapshot([serverComment(legacy)]));
+      await createResponse.promise;
+    });
+    await waitFor(() => expect(result.current.migration.status).toBe("complete"));
+    expect(readSession("session-1")).toEqual([diff]);
+    expect(useCommentsStore.getState().byId).toEqual({ "diff-1": diff });
+  });
+
+  it("keeps migration running while the final snapshot is pending", async () => {
+    const legacy = legacyPlanComment("comment-1", "session-1");
+    const finalSnapshot = snapshot([serverComment(legacy)]);
+    const listResponse = deferred<TaskPlanCommentSnapshot>();
+    writeSession("session-1", [legacy]);
+    api.createTaskPlanComment.mockResolvedValue(snapshot([serverComment(legacy)]));
+    api.getTaskPlanComments.mockReturnValue(listResponse.promise);
+
+    const { result } = renderHook(useHarness, { wrapper });
+    act(() => result.current.store.getState().setTaskPlan(TASK_ID, taskPlan));
+
+    await waitFor(() => expect(api.getTaskPlanComments).toHaveBeenCalledWith(TASK_ID));
+    expect(result.current.migration.status).toBe("running");
+    expect(result.current.migration.isReady).toBe(false);
+    expect(result.current.migration.isBlocking).toBe(true);
+
+    await act(async () => {
+      listResponse.resolve(finalSnapshot);
+      await listResponse.promise;
+    });
+    await waitFor(() => expect(result.current.migration.status).toBe("complete"));
+    expect(readSession("session-1")).toEqual([]);
+  });
+
   it("migrates every known session row by UUID and preserves non-plan records", async () => {
     const first = legacyPlanComment("comment-1", "session-1");
     const second = legacyPlanComment("comment-2", "session-2");

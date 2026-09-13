@@ -6,6 +6,7 @@ import {
   NOTICE_SELECTOR,
   watchPlanCommentMigrationNotice,
 } from "../../helpers/plan-comment-migration";
+import { watchWs } from "../../helpers/causal-waits";
 import { planScript } from "../../helpers/seed-session-messages";
 import { SessionPage } from "../../pages/session-page";
 
@@ -24,7 +25,9 @@ test.describe("mobile: task-owned plan comments", () => {
     seedData,
   }) => {
     test.setTimeout(150_000);
+    const ws = watchWs(testPage);
     const markerKey = await watchPlanCommentMigrationNotice(testPage);
+    const initialCommentsList = ws.waitForResponse("task.plan.comments.list");
     const task = await apiClient.createTaskWithAgent(
       seedData.workspaceId,
       "Quiet mobile plan comment restoration",
@@ -41,6 +44,7 @@ test.describe("mobile: task-owned plan comments", () => {
     const session = new SessionPage(testPage);
     await session.waitForLoad();
     await expect.poll(() => apiClient.getTaskPlan(task.id), { timeout: 30_000 }).not.toBeNull();
+    await initialCommentsList;
     await session.waitForChatIdle({ timeout: 45_000 });
     await expect(testPage.locator(`${NOTICE_SELECTOR}:visible`)).toHaveCount(0);
     expect(await migrationNoticeWasVisible(testPage, markerKey)).toBe(false);
@@ -56,11 +60,28 @@ test.describe("mobile: task-owned plan comments", () => {
     await expect(testPage.locator(`${NOTICE_SELECTOR}:visible`)).toHaveCount(0);
     await assertNoDocumentHorizontalOverflow(testPage, "mobile quiet plan comment restoration");
 
+    const reloadedCommentsList = ws.waitForResponse("task.plan.comments.list");
     await testPage.reload();
     await session.waitForLoad();
+    await reloadedCommentsList;
     await session.waitForChatIdle({ timeout: 45_000 });
     await expect(testPage.locator(`${NOTICE_SELECTOR}:visible`)).toHaveCount(0);
     expect(await migrationNoticeWasVisible(testPage, markerKey)).toBe(false);
+
+    await testPage.getByRole("navigation").getByRole("button", { name: "Chat", exact: true }).tap();
+    await session.waitForChatIdle({ timeout: 45_000 });
+    if (!task.session_id) throw new Error("expected a primary session");
+    const readyMessage = "Confirm mobile plan comment restoration is ready";
+    await session.sendMessageViaButton(readyMessage);
+    await expect
+      .poll(
+        async () =>
+          (await apiClient.listSessionMessages(task.session_id as string)).messages.some(
+            (message) => message.author_type === "user" && message.content.includes(readyMessage),
+          ),
+        { timeout: 30_000 },
+      )
+      .toBe(true);
   });
 
   // @covers AC-TASKS-PLAN-COMMENTS-001.7
@@ -73,6 +94,7 @@ test.describe("mobile: task-owned plan comments", () => {
     seedData,
   }) => {
     test.setTimeout(210_000);
+    const ws = watchWs(testPage);
     const task = await apiClient.createTaskWithAgent(
       seedData.workspaceId,
       "Mobile task-owned plan comments",
@@ -152,8 +174,10 @@ test.describe("mobile: task-owned plan comments", () => {
         secondaryCommentId: LEGACY_SECONDARY_ID,
       },
     );
+    const migrationCommentsList = ws.waitForResponse("task.plan.comments.list");
     await testPage.reload();
     await session.waitForLoad();
+    await migrationCommentsList;
 
     await expect
       .poll(async () => {
@@ -167,6 +191,26 @@ test.describe("mobile: task-owned plan comments", () => {
     await expect(
       testPage.locator('[data-testid="plan-comment-migration-notice"]:visible'),
     ).toHaveCount(0, { timeout: 15_000 });
+    await expect(session.activeChat().getByText("2 plan comments", { exact: true })).toBeVisible();
+    await expect
+      .poll(() =>
+        testPage.evaluate(
+          (primaryId) => JSON.parse(sessionStorage.getItem(`kandev.comments.${primaryId}`) ?? "[]"),
+          primary.id,
+        ),
+      )
+      .toEqual([expect.objectContaining({ id: "legacy-diff", source: "diff" })]);
+
+    const postMigrationMarkerKey = await watchPlanCommentMigrationNotice(testPage);
+    const postMigrationCommentsList = ws.waitForResponse("task.plan.comments.list");
+    await testPage.reload();
+    await session.waitForLoad();
+    await postMigrationCommentsList;
+    await session.waitForChatIdle({ timeout: 45_000 });
+    await expect(
+      testPage.locator('[data-testid="plan-comment-migration-notice"]:visible'),
+    ).toHaveCount(0);
+    expect(await migrationNoticeWasVisible(testPage, postMigrationMarkerKey)).toBe(false);
     await expect(session.activeChat().getByText("2 plan comments", { exact: true })).toBeVisible();
     await expect
       .poll(() =>

@@ -85,7 +85,8 @@ Maps to `AC-TASKS-PLAN-COMMENTS-004.5` through `.7`.
 2. Add `checks an empty legacy scan without claiming restoration` to the hook
    tests. Hold the snapshot promise pending and expect the silent checking state.
 3. Add the minimal status transition and notice correction from the design.
-4. Cover the plan's retry, mixed-storage, duplicate-mount, and stale-plan cases.
+4. Cover the plan's retry, mixed-storage, duplicate-mount, and stale-plan cases,
+   including deferred create and final-snapshot checks for actual legacy rows.
 5. Extend existing gate tests with `checking` and retain all prior cases.
 6. Add browser assertions that detect a transient notice during refresh.
    Keep the existing desktop/phone delivery scenarios.
@@ -117,7 +118,8 @@ git diff --check
 Managed E2E commands rebuild production assets. Run desktop and phone commands
 sequentially. Record discovered tests and final results for both projects.
 Compare the rendered states with UI-01 during these runs. No browser or product
-test has run during package creation.
+test ran during package creation; the implementation and review results are
+recorded below.
 
 ## Files likely touched
 
@@ -161,7 +163,7 @@ flash. Use deferred hook tests and observation across browser startup.
 
 ## Results
 
-Implementation completed on 2026-09-13.
+Implementation and review follow-up completed on 2026-09-13.
 
 The TDD RED run failed in the two intended places: the notice rendered for the
 idle state, and an empty legacy scan reported `running`. After the production
@@ -174,12 +176,20 @@ storage, failed rows, and missing-plan recovery remain covered.
 Verification results:
 
 - `pnpm install --frozen-lockfile`: dependencies already up to date.
-- The exact Vitest block above: 7 files and 84 tests passed.
+- The exact Vitest block above: 7 files and 86 tests passed. The added hook
+  cases hold create and final snapshot responses separately, assert `running`
+  and blocked delivery, and then assert completion.
 - `pnpm run typecheck`: passed.
 - The targeted ESLint command above: passed with zero warnings.
 - `pnpm run i18n:ratchet`: 0 added and 3 modified files clean; 644 guard entries intact.
-- Desktop managed E2E: 2 tests passed, including the refresh silence regression and the existing Send/Run flow.
-- Mobile managed E2E: 2 tests passed, including Chat and Plan refresh silence and the existing migration flow.
+- Desktop managed E2E: 2 tests passed. The quiet refresh case waits for the
+  causal comment-list responses through readiness and completes a successful
+  user Send; the existing Send/Run flow remains intact.
+- Mobile managed E2E: 2 tests passed. The quiet case covers Chat and Plan
+  refresh silence through readiness and a successful Send. The migration case
+  performs a fresh post-migration reload, checks for no restoration flash,
+  verifies backend comments and the retained diff row, then runs its existing
+  Send/Run flow.
 - `python3 scripts/list-docs.py validate`: 266 decisions and 840 specifications validated.
 - `python3 scripts/lint-spec-files.py --all`: all specification files passed.
 - Prettier check and `git diff --check`: passed.
