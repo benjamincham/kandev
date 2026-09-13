@@ -80,6 +80,7 @@ func (f *fakeWorkflowMovePreflight) PreflightWorkflowStepMove(
 	if targetStep != nil {
 		f.targetStepID = targetStep.ID
 	}
+	return f.err
 }
 
 type workflowMoveLifecycleGateFake struct {

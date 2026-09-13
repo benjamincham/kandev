@@ -4166,39 +4166,8 @@ func (s *Service) dispatchOnEnterRunScript(
 	return true
 }
 
-func (s *Service) dispatchOnEnterEngineOwned(
-	ctx context.Context,
-	taskID string,
-	step *wfmodels.WorkflowStep,
-	action wfmodels.OnEnterAction,
-	position int,
-	entryID int64,
-) bool {
-	abandon, failed, cause := s.dispatchEngineOwnedOnEnterAction(ctx, taskID, step, action, position, entryID)
-	if abandon {
-		s.logger.Debug("processOnEnter: lost a live claim to a concurrent dispatch of this step entry, abandoning remaining on_enter actions",
-			zap.String("workflow_id", step.WorkflowID),
-			zap.String("step_id", step.ID),
-			zap.String("task_id", taskID),
-			zap.String("action_type", string(action.Type)),
-		)
-		return false
-	}
-	if failed && action.Type == wfmodels.OnEnterClearDecisions {
-		s.logger.Error("processOnEnter: clear_decisions failed, aborting remaining on_enter actions for step entry",
-			zap.String("workflow_id", step.WorkflowID),
-			zap.String("step_id", step.ID),
-			zap.String("task_id", taskID),
-			zap.String("cause", cause),
-		)
-		return false
-	}
-	return true
-}
-
 func (s *Service) dispatchOnEnterActions(ctx context.Context, taskID string, session *models.TaskSession, step *wfmodels.WorkflowStep, entryID int64, isPassthrough, hasPlanMode bool, occurrenceIDs ...string) onEnterDispatchResult {
 	result := onEnterDispatchResult{}
-dispatchLoop:
 	for i, action := range step.Events.OnEnter {
 		switch action.Type {
 		case wfmodels.OnEnterEnablePlanMode:
@@ -4220,20 +4189,24 @@ dispatchLoop:
 				result.aborted = true
 				return result
 			}
-		case wfmodels.OnEnterClearDecisions, wfmodels.OnEnterQueueRunForEachParticipant:
-			if !s.dispatchOnEnterEngineOwned(ctx, taskID, step, action, i, entryID) {
-				result.aborted = true
-				break dispatchLoop
-			}
-		case wfmodels.OnEnterQueueRun, wfmodels.OnEnterRunCodeReview, wfmodels.OnEnterEnsureParticipantSeat:
-			// Session-independent, ledger-owned: engine.DispatchStepEntry
-			// (internal/workflow/engine/entrydispatch.go) dispatches these
-			// synchronously after commit via every step-transition writer
-			// (Repository.dispatchStepEntry in step_entry_dispatch.go).
-			// processOnEnter must not also dispatch them here or they would
-			// run twice — see docs/specs/workflow-on-enter-action-dispatch/spec.md.
-			// This is a known, recognized type, not the AC-A6 default warning case.
 		default:
+			if stepentry.OwnedByLedger(string(action.Type)) {
+				// engine.DispatchStepEntry (internal/workflow/engine/entrydispatch.go)
+				// owns this kind and already dispatches it synchronously after
+				// commit via every step-transition writer. Dispatching it here
+				// too would run it twice, so this dispatcher skips it without
+				// a warning or a marker. Debug-only (not Warn): this fires on
+				// every normal entry through a step declaring a ledger-owned
+				// kind, which is the shipped default — a Debug line still lets
+				// a config author confirm the split without noising Warn-level
+				// logs for the common case.
+				s.logger.Debug("processOnEnter: skipping ledger-owned action kind (dispatched via DispatchStepEntry)",
+					zap.String("task_id", taskID),
+					zap.String("step_id", step.ID),
+					zap.String("action_type", string(action.Type)),
+				)
+				continue
+			}
 			// AC-A6: a genuinely unrecognized on_enter action type. Warn
 			// instead of silently discarding it — this is the exact failure
 			// mode the step-entry dispatch fix exists to close.
