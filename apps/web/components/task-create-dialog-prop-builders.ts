@@ -15,9 +15,24 @@ import {
   resolveTaskCreateLaunchPreview,
   type TaskCreateLaunchPreview,
 } from "@/components/task-create-dialog-launch-preview";
+import { hasUnavailablePickerRemoteProvider } from "@/components/task-create-dialog-remote-provider-readiness";
 
 export function computeHasAllBranches(fs: DialogFormState): boolean {
   if (fs.noRepository) return true;
+  if (fs.repositorySelections) {
+    const selected = fs.repositorySelections.filter((selection) =>
+      selection.kind === "remote"
+        ? selection.url.trim() !== ""
+        : Boolean(selection.repositoryId || selection.localPath),
+    );
+    return (
+      selected.length > 0 &&
+      selected.every((selection) =>
+        Boolean(selection.branch || (selection.kind === "local" && selection.baseBranch)),
+      ) &&
+      !hasUnavailablePickerRemoteProvider(selected, fs.remoteProviderReadiness)
+    );
+  }
   if (fs.useRemote) {
     const rows = fs.remoteRepos.filter((r) => r.url.trim() !== "");
     return rows.length > 0 && rows.every((r) => !!r.branch);
@@ -64,6 +79,8 @@ export function buildDialogFormBodyProps(
     onRowRepositoryChange: handlers.handleRowRepositoryChange,
     onRowBranchChange: handlers.handleRowBranchChange,
     onRowPolicyChange: handlers.handleRowPolicyChange,
+    repositoryLocked: repoLocked,
+    branchLocked: !!props.lockedFields?.branch,
     initialDescription: fs.currentDefaults.description,
     workspaceId: props.workspaceId,
     onJiraImport: setup.handleJiraImport,
@@ -109,8 +126,7 @@ export function buildDialogFormBodyProps(
     lastUsedBranch: setup.taskCreateLastUsed.branch,
     userSettingsLoaded: setup.userSettingsLoaded,
     freshBranchAvailable: setup.freshBranchAvailable,
-    // The same lock disables the source-mode and local-repository controls, and
-    // applying a set writes fs.repositories just as they would.
+    // Applying a set writes into the same ordered draft as the repository picker.
     repositorySets: repoLocked ? undefined : setup.repositorySets,
     isLocalExecutor: computed.isLocalExecutor,
     agentCompatState: computed.agentCompatState,

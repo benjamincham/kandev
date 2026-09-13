@@ -28,6 +28,7 @@ import type { RemoteAuthSpec } from "@/lib/api/domains/settings-api";
 import type { AgentProfileOption } from "@/lib/state/slices/settings/types";
 import { isSelectableAgentProfile } from "@/lib/state/slices/settings/types";
 import { getMultiRepoExecutorDisabledReason } from "@/components/task-create-dialog-multi-repo-guard";
+import { resolveRepositorySelections } from "@/components/task-create-dialog-repositories-state";
 import { t } from "@/lib/i18n";
 
 /**
@@ -108,8 +109,11 @@ function resolveDialogWorkflowSelection({
  */
 export function computeHasRepositorySelection(fs: DialogFormState): boolean {
   if (fs.noRepository) return true;
-  if (fs.useRemote) return fs.remoteRepos.some((r) => r.url.trim() !== "");
-  return fs.repositories.some((r) => r.repositoryId || r.localPath);
+  return resolveRepositorySelections(fs).some((selection) =>
+    selection.kind === "remote"
+      ? selection.url.trim() !== ""
+      : Boolean(selection.repositoryId || selection.localPath),
+  );
 }
 
 /**
@@ -122,8 +126,11 @@ export function computeHasRepositorySelection(fs: DialogFormState): boolean {
  */
 export function computeSelectedRepoCount(fs: DialogFormState): number {
   if (fs.noRepository) return 0;
-  if (fs.useRemote) return fs.remoteRepos.filter((r) => r.url.trim() !== "").length;
-  return fs.repositories.filter((r) => r.repositoryId || r.localPath).length;
+  return resolveRepositorySelections(fs).filter((selection) =>
+    selection.kind === "remote"
+      ? selection.url.trim() !== ""
+      : Boolean(selection.repositoryId || selection.localPath),
+  ).length;
 }
 
 /** Filter raw store profiles before executor compatibility or autopick runs. */
@@ -303,14 +310,15 @@ export function useDialogComputed({
     snapshots,
   });
   const workspaceDefaults = workspaceId ? workspaces.find((ws) => ws.id === workspaceId) : null;
-  const firstRemoteUrl = fs.remoteRepos[0]?.url.trim() ?? "";
+  const firstRemoteUrl =
+    resolveRepositorySelections(fs)
+      .find((selection) => selection.kind === "remote")
+      ?.url.trim() ?? "";
   const hasRepositorySelection = computeHasRepositorySelection(fs);
   // Branch options are only used by the URL-mode flow now (the chip's branch
   // pill loads branches per-repo). Keep the computed value but always feed it
   // the URL branches when in URL mode — sourced from the per-URL hook cache.
-  const branchOptions = useBranchOptions(
-    fs.useRemote ? fs.branchesByUrl.branches(firstRemoteUrl) : [],
-  );
+  const branchOptions = useBranchOptions(fs.branchesByUrl.branches(firstRemoteUrl));
   const allExecutorProfiles = useMemo<ExecutorProfile[]>(() => {
     return executors.flatMap((executor) =>
       (executor.profiles ?? []).map((p) => ({

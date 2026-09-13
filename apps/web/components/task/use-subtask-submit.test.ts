@@ -278,6 +278,36 @@ describe("useSubtaskSubmit", () => {
     );
   });
 
+  it("blocks submission when a picker repository loses provider availability", async () => {
+    const opts = makeSubmitOptions({
+      fs: {
+        useRemote: false,
+        remoteRepos: [],
+        repositories: [],
+        discoveredRepositories: [],
+        repositorySelections: [
+          {
+            kind: "remote",
+            key: "remote-1",
+            url: "https://bitbucket.example.test/acme/app",
+            branch: "main",
+            source: "picker",
+            provider: "bitbucket",
+          },
+        ],
+        remoteProviderReadiness: { bitbucket: "unavailable" },
+      } as unknown as Parameters<typeof useSubtaskSubmit>[0]["fs"],
+    });
+    const { result } = renderHook(() => useSubtaskSubmit(opts));
+
+    await act(async () => {
+      await result.current.handleSubmit({ preventDefault: vi.fn() } as never);
+    });
+
+    expect(mockCreateTask).not.toHaveBeenCalled();
+    expect(opts.setIsCreating).not.toHaveBeenCalled();
+  });
+
   it("sends the autopilot creation flag for a subtask", async () => {
     const opts = makeSubmitOptions({ autopilot: true });
     const { result } = renderHook(() => useSubtaskSubmit(opts));
@@ -322,6 +352,41 @@ describe("useSubtaskSubmit", () => {
         isLocalExecutor: true,
         freshBranch: { confirmDiscard: false, consentedDirtyFiles: [] },
       }),
+    );
+  });
+
+  it("passes the ordered mixed selection to the shared repository serializer", async () => {
+    const buildRepositoriesPayload = await import("@/components/task-create-dialog-helpers");
+    const selections = [
+      { kind: "local", key: "local-1", repositoryId: "repo-local", branch: "main" },
+      {
+        kind: "remote",
+        key: "remote-1",
+        url: "https://github.com/acme/remote",
+        branch: "develop",
+        source: "paste",
+      },
+    ] as const;
+    const opts = makeSubmitOptions({
+      fs: {
+        useRemote: false,
+        remoteRepos: [],
+        repositorySelections: [...selections],
+        prInfoByUrl: {},
+        repositories: [],
+        discoveredRepositories: [],
+        agentProfileId: "",
+        executorProfileId: "local-profile",
+      } as unknown as Parameters<typeof useSubtaskSubmit>[0]["fs"],
+    });
+    const { result } = renderHook(() => useSubtaskSubmit(opts));
+
+    await act(async () => {
+      await result.current.handleSubmit({ preventDefault: vi.fn() } as never);
+    });
+
+    expect(buildRepositoriesPayload.buildRepositoriesPayload).toHaveBeenCalledWith(
+      expect.objectContaining({ selections: [...selections] }),
     );
   });
 

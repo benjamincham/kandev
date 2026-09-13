@@ -4,6 +4,7 @@ import path from "node:path";
 import { test, expect } from "../../fixtures/test-base";
 import { makeGitEnv } from "../../helpers/git-helper";
 import { assertNoDocumentHorizontalOverflow } from "../../helpers/layout-assertions";
+import { waitForFiniteAnimations } from "../../helpers/animations";
 import { useRegularMode } from "../../helpers/regular-mode";
 import { MobileKanbanPage } from "../../pages/mobile-kanban-page";
 
@@ -40,20 +41,22 @@ test.describe("Repository sets in the mobile task-create picker", () => {
 
     const dialog = testPage.getByTestId("create-task-dialog");
     await expect(dialog).toBeVisible();
-    const repositoryChips = dialog.getByTestId("repo-chip-trigger");
+    await testPage.getByTestId("mobile-repository-manager").tap();
+    const repositoryChips = testPage.getByTestId("repo-chip-trigger");
     await expect(repositoryChips.first()).toBeVisible();
 
-    // The menu renders as a safe-area-aware bottom sheet below 640px, which comes
-    // from the shared DropdownMenu primitive rather than a separate mobile menu.
-    await dialog.getByTestId("repository-sets-trigger").tap();
+    await testPage.getByTestId("repository-sets-trigger").tap();
     const options = testPage.getByTestId("repository-set-option");
-    await expect(options.first()).toBeVisible();
-    await expect(options.first()).toContainText(SET_NAME);
-    await options.first().tap();
+    const option = options.filter({ hasText: SET_NAME });
+    await expect(option).toHaveCount(1);
+    await expect(option).toBeVisible();
+    const menu = testPage.locator('[data-slot="dropdown-menu-content"]').filter({ has: option });
+    await waitForFiniteAnimations(menu);
+    await option.tap();
 
     await expect(repositoryChips).toHaveCount(2);
     await expect(repositoryChips.nth(1)).toContainText(SECOND_REPO_NAME);
-    await expect(dialog.getByTestId("repo-chip").nth(1)).toContainText("develop");
+    await expect(testPage.getByTestId("repo-chip").nth(1)).toContainText("develop");
 
     if (prCapture.capturing) {
       // Let the bottom sheet finish dismissing so the asset shows the resulting
@@ -64,6 +67,7 @@ test.describe("Repository sets in the mobile task-create picker", () => {
     await prCapture.screenshot("mobile-repository-set-applied", {
       caption: "Applying a repository set on a phone fills the picker with both members.",
     });
+    await testPage.getByTestId("mobile-repository-done").tap();
 
     const title = `Mobile repository set task ${Date.now()}`;
     await dialog.getByTestId("task-title-input").fill(title);

@@ -33,6 +33,7 @@ import {
   toMessageAttachments,
 } from "@/components/task-create-dialog-helpers";
 import { hasRegisteredRepositoryProviderCandidate } from "@/lib/plugins/repository-provider-url-resolution";
+import { resolveRepositorySelections } from "@/components/task-create-dialog-repositories-state";
 
 function notifyQueuedTask(
   response: { queued_for_step_id?: string | null },
@@ -163,7 +164,9 @@ export function useTaskSubmitHandlers({
   workflowId,
   effectiveWorkflowId,
   repositories,
+  repositorySelections,
   repositoriesDirty,
+  remoteProviderReadiness,
   discoveredRepositories,
   workspaceRepositories,
   useRemote,
@@ -189,6 +192,7 @@ export function useTaskSubmitHandlers({
   setTaskName,
   setRepositories,
   setRemoteRepos,
+  resetRepositorySelections,
   setAgentProfileId,
   setExecutorId,
   setSelectedWorkflowId,
@@ -211,8 +215,19 @@ export function useTaskSubmitHandlers({
   const applyAgentProfileRecentUse = useAppStore((state) => state.applyAgentProfileRecentUse);
   const isStartedEdit = computeIsTaskStarted(isEditMode, editingTask);
 
+  const selections = resolveRepositorySelections({
+    repositorySelections,
+    repositories,
+    remoteRepos,
+    useRemote,
+  });
   const isFreshBranchActive =
-    freshBranchEnabled && isLocalExecutor && !useRemote && repositoryLocalPath !== "";
+    freshBranchEnabled &&
+    isLocalExecutor &&
+    !noRepository &&
+    selections.length === 1 &&
+    selections[0]?.kind === "local" &&
+    repositoryLocalPath !== "";
   const { pendingDiscard, ensureFreshBranchConsent, createTaskWithFreshBranchRetry } =
     useFreshBranchConsent({
       isFreshBranchActive,
@@ -243,6 +258,8 @@ export function useTaskSubmitHandlers({
         workspaceId,
         effectiveWorkflowId,
         repositories,
+        selections,
+        remoteProviderReadiness,
         remoteRepos: useRemote ? remoteRepos : undefined,
         agentProfileId,
         noRepository,
@@ -251,11 +268,13 @@ export function useTaskSubmitHandlers({
       workspaceId,
       effectiveWorkflowId,
       repositories,
+      remoteProviderReadiness,
       useRemote,
       remoteRepos,
       agentProfileId,
       noRepository,
       autoTitle,
+      selections,
     ],
   );
 
@@ -264,8 +283,12 @@ export function useTaskSubmitHandlers({
   // the backend round-trip so the user never sees the raw-UUID dedup error.
   // Returns true when a duplicate was found (caller should abort).
   const checkRemoteDuplicates = useCallback((): boolean => {
-    if (!useRemote) return false;
-    const duplicate = findDuplicateRemoteRepo(remoteRepos);
+    const remoteRows = selections.filter(
+      (selection): selection is Extract<typeof selection, { kind: "remote" }> =>
+        selection.kind === "remote",
+    );
+    if (remoteRows.length === 0) return false;
+    const duplicate = findDuplicateRemoteRepo(remoteRows);
     if (!duplicate) return false;
     toast({
       title: t("task:duplicateRepository"),
@@ -273,11 +296,15 @@ export function useTaskSubmitHandlers({
       variant: "error",
     });
     return true;
-  }, [useRemote, remoteRepos, toast]);
+  }, [selections, toast]);
 
   const checkRemoteResolution = useCallback((): boolean => {
-    if (!useRemote) return false;
-    const unresolved = findUnresolvedProviderRemote(remoteRepos, (url) => {
+    const remoteRows = selections.filter(
+      (selection): selection is Extract<typeof selection, { kind: "remote" }> =>
+        selection.kind === "remote",
+    );
+    if (remoteRows.length === 0) return false;
+    const unresolved = findUnresolvedProviderRemote(remoteRows, (url) => {
       if (!hasRegisteredRepositoryProviderCandidate(url)) return false;
       return (
         !prInfoByUrl.settled(url) ||
@@ -295,7 +322,7 @@ export function useTaskSubmitHandlers({
       variant: "error",
     });
     return true;
-  }, [prInfoByUrl, remoteRepos, toast, useRemote]);
+  }, [prInfoByUrl, selections, toast]);
 
   const hasRemoteSubmitBlocker = useCallback(
     () => checkRemoteResolution() || checkRemoteDuplicates(),
@@ -306,8 +333,11 @@ export function useTaskSubmitHandlers({
     setHasTitle(false);
     setHasDescription(false);
     setTaskName("");
-    setRepositories([]);
-    setRemoteRepos([]);
+    if (resetRepositorySelections) resetRepositorySelections([]);
+    else {
+      setRepositories([]);
+      setRemoteRepos([]);
+    }
     setAgentProfileId("");
     setExecutorId("");
     setSelectedWorkflowId(workflowId);
@@ -320,6 +350,7 @@ export function useTaskSubmitHandlers({
     setTaskName,
     setRepositories,
     setRemoteRepos,
+    resetRepositorySelections,
     setAgentProfileId,
     setExecutorId,
     setSelectedWorkflowId,
@@ -330,6 +361,7 @@ export function useTaskSubmitHandlers({
     (consentedDirtyFiles: string[] = []) => {
       if (noRepository) return [];
       return buildRepositoriesPayload({
+        selections,
         useRemote,
         remoteRepos,
         prInfoByUrl,
@@ -344,6 +376,7 @@ export function useTaskSubmitHandlers({
     [
       noRepository,
       useRemote,
+      selections,
       remoteRepos,
       prInfoByUrl,
       repositories,

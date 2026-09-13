@@ -302,6 +302,43 @@ describe("RepoChipsRow", () => {
     expect(onRowBranchChange).toHaveBeenCalledWith("r0", "feature/x");
   });
 
+  it("local-executor discovered rows preserve the current checkout branch", () => {
+    mockBranches.value = {
+      branches: [
+        { name: "main", type: "local" } as Branch,
+        { name: "feature/x", type: "local" } as Branch,
+      ],
+      isLoading: false,
+    };
+    const discoveredRow = row({ key: "r0", localPath: DISCOVERED_REPO_PATH });
+    const onRowBranchChange = vi.fn();
+    renderInProvider(
+      <RepoChipsRow
+        fs={makeFs({
+          repositorySelections: [{ kind: "local", ...discoveredRow }],
+          repositories: [discoveredRow],
+          discoveredRepositories: [
+            {
+              path: DISCOVERED_REPO_PATH,
+              name: "local-project",
+              default_branch: "main",
+            },
+          ] as unknown as DialogFormState["discoveredRepositories"],
+          currentLocalBranch: "feature/x",
+          currentLocalBranchLoading: false,
+        })}
+        repositories={[]}
+        isTaskStarted={false}
+        workspaceId="ws-1"
+        onRowRepositoryChange={NOOP}
+        onRowBranchChange={onRowBranchChange}
+        isLocalExecutor
+      />,
+    );
+
+    expect(onRowBranchChange).toHaveBeenCalledWith("r0", "feature/x");
+  });
+
   it("uses the symbolic current branch for an unborn local repository", () => {
     mockBranches.value = { branches: [], isLoading: false };
     const onRowBranchChange = vi.fn();

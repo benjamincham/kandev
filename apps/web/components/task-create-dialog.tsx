@@ -54,6 +54,8 @@ function CreateModeBody(props: DialogFormBodyProps) {
     onRowRepositoryChange,
     onRowBranchChange,
     onRowPolicyChange,
+    repositoryLocked,
+    branchLocked,
     onToggleRemote,
     onToggleFreshBranch,
     repositories,
@@ -65,7 +67,7 @@ function CreateModeBody(props: DialogFormBodyProps) {
   } = props;
   const showTaskName =
     shouldShowTaskTitleField(isCreateMode, isEditMode, isTaskStarted) && !autoTitle;
-  const taskNameAutoFocus = !autoTitle && !isEditMode && !fs.useRemote;
+  const taskNameAutoFocus = !autoTitle && !isEditMode;
   return (
     <>
       <RepoChipsRow
@@ -73,6 +75,8 @@ function CreateModeBody(props: DialogFormBodyProps) {
         repositories={repositories}
         isTaskStarted={isTaskStarted}
         workspaceId={workspaceId}
+        repositoryLocked={repositoryLocked}
+        branchLocked={branchLocked}
         onRowRepositoryChange={onRowRepositoryChange}
         onRowBranchChange={onRowBranchChange}
         onRowPolicyChange={onRowPolicyChange}

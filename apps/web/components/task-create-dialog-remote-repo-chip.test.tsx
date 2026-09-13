@@ -53,6 +53,36 @@ describe("RemoteRepoChip — write paths", () => {
     fireEvent.click(retryButton);
     expect(onRetry).toHaveBeenCalledOnce();
   });
+
+  it("shows connection recovery controls for an unavailable picker provider", () => {
+    const onRetry = vi.fn();
+    renderInProvider(
+      <RemoteRepoChip
+        row={row({
+          url: URL_ACME_SITE,
+          branch: "main",
+          source: "picker",
+          provider: "github",
+        })}
+        branches={[{ name: "main", type: "remote" }]}
+        branchesLoading={false}
+        accessibleRepos={makeAccessible()}
+        connectionUnavailable
+        onURLChange={vi.fn()}
+        onBranchChange={noopBranch}
+        onRemove={noopRemove}
+        onRetry={onRetry}
+      />,
+    );
+
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("repository provider is unavailable");
+    expect(screen.getByRole("link", { name: "Settings" }).getAttribute("href")).toBe(
+      "/settings/integrations",
+    );
+    fireEvent.click(screen.getByRole("button", { name: /retry remote repository resolution/i }));
+    expect(onRetry).toHaveBeenCalledOnce();
+  });
 });
 
 describe("RemoteRepoChip — custom provider URL input", () => {

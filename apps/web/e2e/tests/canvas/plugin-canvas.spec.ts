@@ -39,10 +39,9 @@ test.describe("Plugin-backed canvases in the desktop task workbench", () => {
 
       const dialog = testPage.getByTestId("create-task-dialog");
       await expect(dialog).toBeVisible();
-      await expect(dialog.getByTestId("source-mode-scratch")).toHaveAttribute(
-        "aria-checked",
-        "true",
-      );
+      await expect(dialog.getByTestId("source-mode-scratch")).toHaveCount(0);
+      await expect(dialog.getByTestId("repo-chips-row")).toBeVisible();
+      await expect(dialog.getByTestId("add-repository")).toBeVisible();
       await expect(dialog.getByTestId("executor-profile-selector")).toContainText(
         localProfile!.name,
       );

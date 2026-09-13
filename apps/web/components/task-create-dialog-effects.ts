@@ -20,6 +20,7 @@ import { useRepositoryAutoSelectEffect } from "@/components/task-create-dialog-r
 import { createDebugLogger, isDebug } from "@/lib/debug/log";
 import { t } from "@/lib/i18n";
 import { useRepositoryDiscovery } from "@/hooks/domains/workspace/use-repository-discovery";
+import { resolveRepositorySelections } from "@/components/task-create-dialog-repositories-state";
 
 // Re-export autopick hooks for callers that imported them from this module.
 export { useWorkflowAgentProfileEffect };
@@ -120,14 +121,15 @@ export function useCurrentLocalBranchEffect(
   workspaceId: string | null,
   repositories: Repository[],
 ) {
-  const { repositories: rows, useRemote, setCurrentLocalBranch, setCurrentLocalBranchLoading } = fs;
+  const { setCurrentLocalBranch, setCurrentLocalBranchLoading } = fs;
+  const selections = resolveRepositorySelections(fs);
   useEffect(() => {
-    if (!open || !workspaceId || useRemote || rows.length !== 1) {
+    if (!open || !workspaceId || selections.length !== 1 || selections[0]?.kind !== "local") {
       setCurrentLocalBranch("");
       setCurrentLocalBranchLoading(false);
       return;
     }
-    const row = rows[0];
+    const row = selections[0];
     let path = row.localPath ?? "";
     if (!path && row.repositoryId) {
       const repo = repositories.find((r: Repository) => r.id === row.repositoryId);
@@ -157,8 +159,7 @@ export function useCurrentLocalBranchEffect(
   }, [
     open,
     workspaceId,
-    useRemote,
-    rows,
+    selections,
     repositories,
     setCurrentLocalBranch,
     setCurrentLocalBranchLoading,
@@ -465,13 +466,12 @@ export function useDefaultSelectionsEffect(
     setExecutorProfileId,
     noRepository,
     preferLocalExecutor: presetPrefersLocalExecutor,
-    useRemote,
-    repositories,
   } = fs;
+  const selections = resolveRepositorySelections(fs);
   const preferLocalExecutor =
-    !useRemote &&
-    (presetPrefersLocalExecutor ||
-      (!noRepository && repositories.some((row) => Boolean(row.localPath))));
+    presetPrefersLocalExecutor ||
+    (!noRepository &&
+      selections.some((selection) => selection.kind === "local" && selection.localPath));
   const executorAutopickContext = useMemo(
     () => ({
       executors,
@@ -532,7 +532,11 @@ export function useDefaultSelectionsEffect(
  */
 export function useGitHubUrlErrorEffect(fs: DialogFormState, open: boolean) {
   const { useRemote, setGitHubUrlError } = fs;
-  const firstUrl = fs.remoteRepos[0]?.url ?? "";
+  const hasCanonicalSelections = Boolean(fs.repositorySelections);
+  const firstUrl =
+    (hasCanonicalSelections
+      ? fs.repositorySelections?.find((selection) => selection.kind === "remote")?.url
+      : fs.remoteRepos[0]?.url) ?? "";
   useEffect(() => {
     if (!open) return;
     // When the user leaves Remote mode (toggle off / switch to workspace
@@ -541,7 +545,7 @@ export function useGitHubUrlErrorEffect(fs: DialogFormState, open: boolean) {
     // used to skip this — the banner stuck around after the field that
     // produced it had been hidden, which surfaced confusing "Invalid
     // GitHub URL" text alongside a repo picker.
-    if (!useRemote) {
+    if (!hasCanonicalSelections && !useRemote) {
       setGitHubUrlError(null);
       return;
     }
@@ -556,7 +560,7 @@ export function useGitHubUrlErrorEffect(fs: DialogFormState, open: boolean) {
       return;
     }
     setGitHubUrlError(null);
-  }, [open, useRemote, firstUrl, setGitHubUrlError]);
+  }, [open, useRemote, firstUrl, hasCanonicalSelections, setGitHubUrlError]);
 }
 
 export function useTaskCreateDialogEffects(fs: DialogFormState, args: TaskCreateEffectsArgs) {

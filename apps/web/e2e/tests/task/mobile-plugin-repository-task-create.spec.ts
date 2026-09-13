@@ -4,6 +4,7 @@ import { installFixturePlugin, PLUGIN_ID } from "../../helpers/plugin-fixture";
 import type { ApiClient } from "../../helpers/api-client";
 import { MobileKanbanPage } from "../../pages/mobile-kanban-page";
 import { assertNoDocumentHorizontalOverflow } from "../../helpers/layout-assertions";
+import { openTaskRepositoryPicker } from "../../helpers/task-repository-picker";
 
 const FIXTURE_PROVIDER = "fixture-source-control";
 const FIXTURE_REPOSITORY_ID = "fixture-repository";
@@ -39,17 +40,21 @@ async function removeFixtureRepositories(apiClient: ApiClient, workspaceId: stri
 }
 
 async function selectFixtureRepository(page: Page): Promise<void> {
-  await page.getByTestId("source-mode-remote").tap();
-  const repositoryTrigger = page.getByTestId("remote-repo-chip-trigger");
-  await expect(repositoryTrigger).toHaveCount(1);
-  await repositoryTrigger.tap();
+  const manager = page.getByTestId("mobile-repository-manager");
+  await expect(manager).toBeVisible();
+  await manager.tap();
+  const removeButtons = page.getByTestId("remove-repo-chip");
+  while ((await removeButtons.count()) > 0) {
+    await removeButtons.first().tap();
+  }
+  await openTaskRepositoryPicker(page, { mobile: true, provider: FIXTURE_PROVIDER });
   const repositoryOption = page
-    .getByTestId("remote-repo-option")
+    .getByTestId("task-repository-remote-option")
     .filter({ hasText: "TEAM/fixture" });
   await expect(repositoryOption).toHaveCount(1);
   await expect(repositoryOption).toBeVisible({ timeout: 15_000 });
   await repositoryOption.tap();
-  await expect(repositoryTrigger).toContainText("TEAM/fixture");
+  await expect(page.getByTestId("remote-repo-chip-trigger")).toContainText("TEAM/fixture");
 }
 
 async function selectFixtureBranch(page: Page): Promise<void> {
@@ -57,9 +62,8 @@ async function selectFixtureBranch(page: Page): Promise<void> {
   await expect(branch).toHaveCount(1);
   await expect(branch).toBeEnabled({ timeout: 15_000 });
   await branch.tap();
-  const option = page.getByRole("option", { name: FIXTURE_BRANCH, exact: false });
-  await expect(option).toHaveCount(1);
-  await expect(option).toBeVisible({ timeout: 15_000 });
+  const option = page.getByRole("option").filter({ hasText: FIXTURE_BRANCH });
+  await expect(option).toBeVisible({ timeout: 30_000 });
   await option.tap();
   await expect(branch).toContainText(FIXTURE_BRANCH);
 }
@@ -87,6 +91,7 @@ test.describe("first-use plugin repository task creation on mobile", () => {
     await expect(dialog).toBeVisible();
     await selectFixtureRepository(testPage);
     await selectFixtureBranch(testPage);
+    await testPage.getByTestId("mobile-repository-done").tap();
     await dialog.getByTestId("task-title-input").fill("Mobile first-use plugin repository task");
     await dialog
       .getByTestId("task-description-input")

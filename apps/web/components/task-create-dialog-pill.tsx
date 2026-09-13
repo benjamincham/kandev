@@ -16,7 +16,7 @@ import {
 } from "@kandev/ui/command";
 import { BranchRefreshButton } from "@/components/branch-refresh-button";
 import { controlSizingClassName } from "@kandev/ui/control-sizing";
-import { useTaskCreateDialogPopoverContainer } from "@/hooks/use-task-create-dialog-popover-container";
+import { useTaskCreateDialogPortalContainer } from "@/hooks/use-task-create-dialog-popover-container";
 import { usePillTooltipSuppression } from "@/hooks/use-pill-tooltip-suppression";
 import { useTooltipMountGate } from "@/hooks/use-tooltip-mount-gate";
 
@@ -577,7 +577,7 @@ export function Pill({
 }: PillProps) {
   const [open, setOpenState] = useState(false);
   const { tooltipOpenState, handleTooltipOpenChange, closeTooltip } = useTooltipMountGate();
-  const portalContainer = useTaskCreateDialogPopoverContainer();
+  const portalContainer = useTaskCreateDialogPortalContainer();
   const {
     suppressTooltip,
     suppressTooltipRef,

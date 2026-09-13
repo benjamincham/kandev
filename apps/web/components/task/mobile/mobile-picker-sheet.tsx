@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode } from "react";
+import { type ComponentProps, type ReactNode } from "react";
 import {
   MobileConfirmationHost,
   MobileConfirmationHostBody,
@@ -25,6 +25,9 @@ type MobilePickerSheetProps = {
   /** Replace the picker content with a confirmation step in this same drawer. */
   confirmationHost?: boolean;
   onCloseAutoFocus?: (event: Event) => void;
+  onPointerDownOutside?: ComponentProps<typeof DrawerContent>["onPointerDownOutside"];
+  onFocusOutside?: ComponentProps<typeof DrawerContent>["onFocusOutside"];
+  onEscapeKeyDown?: (event: KeyboardEvent) => void;
   /** Fixed content above the single scrolling picker region. */
   fixedContent?: ReactNode;
   children: ReactNode;
@@ -44,6 +47,9 @@ export function MobilePickerSheet({
   headerAction,
   confirmationHost = false,
   onCloseAutoFocus,
+  onPointerDownOutside,
+  onFocusOutside,
+  onEscapeKeyDown,
   fixedContent,
   children,
 }: MobilePickerSheetProps) {
@@ -71,7 +77,13 @@ export function MobilePickerSheet({
       <MobileConfirmationHost open={open} surface="drawer">
         {({ contentProps }) => (
           <Drawer open={open} onOpenChange={onOpenChange}>
-            <DrawerContent onCloseAutoFocus={onCloseAutoFocus} {...contentProps}>
+            <DrawerContent
+              {...contentProps}
+              onCloseAutoFocus={onCloseAutoFocus}
+              onPointerDownOutside={onPointerDownOutside}
+              onFocusOutside={onFocusOutside}
+              onEscapeKeyDown={onEscapeKeyDown}
+            >
               <MobileConfirmationHostBody>{content}</MobileConfirmationHostBody>
             </DrawerContent>
           </Drawer>
@@ -80,7 +92,14 @@ export function MobilePickerSheet({
     );
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent onCloseAutoFocus={onCloseAutoFocus}>{content}</DrawerContent>
+      <DrawerContent
+        onCloseAutoFocus={onCloseAutoFocus}
+        onPointerDownOutside={onPointerDownOutside}
+        onFocusOutside={onFocusOutside}
+        onEscapeKeyDown={onEscapeKeyDown}
+      >
+        {content}
+      </DrawerContent>
     </Drawer>
   );
 }

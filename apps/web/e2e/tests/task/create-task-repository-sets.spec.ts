@@ -172,7 +172,7 @@ test.describe("Task creation with repository sets", () => {
     await expect(testPage.getByTestId(SET_OPTION)).toHaveCount(0);
   });
 
-  test("the Sets control survives a Remote/None round trip without a disabled reason", async ({
+  test("the Sets control stays available after the last row is removed", async ({
     testPage,
     apiClient,
     seedData,
@@ -191,19 +191,10 @@ test.describe("Task creation with repository sets", () => {
     const row = dialog.getByTestId("repo-chips-row");
     await expect(trigger).toBeEnabled();
 
-    // Sets select workspace repositories, so they are not offered in the modes
-    // that select something else.
-    await dialog.getByTestId("source-mode-scratch").click();
-    await expect(trigger).toHaveCount(0);
-    await dialog.getByTestId("source-mode-remote").click();
-    await expect(trigger).toHaveCount(0);
-
-    // Returning to Repo leaves the executor on Local, because No repository moved
-    // it off worktree. The control must come back usable rather than greyed out:
-    // gating it on executor capability once wedged a full sentence into this row,
-    // and the menu opened anyway because DropdownMenuTrigger owns its own pointer
-    // handlers.
-    await dialog.getByTestId("source-mode-workspace").click();
+    // Sets remain available for an empty editable draft. Removing the final
+    // row must not make the control disappear or restore the row asynchronously.
+    await dialog.getByTestId("remove-repo-chip").first().click();
+    await expect(dialog.getByTestId(REPO_CHIP_TRIGGER)).toHaveCount(0);
     await expect(trigger).toBeEnabled();
     await expect(row).not.toContainText("Multi-repo tasks are unavailable");
 

@@ -34,7 +34,13 @@ async function openCreateTask(page: Page): Promise<void> {
 }
 
 async function openCreationDrawer(page: Page): Promise<Locator> {
+  const sheet = page.getByTestId("mobile-repository-sheet-content");
+  if (!(await sheet.isVisible().catch(() => false))) {
+    await page.getByTestId("mobile-repository-manager").tap();
+    await expect(sheet).toBeVisible();
+  }
   const trigger = page.getByTestId("repo-chip-trigger");
+  await expect(trigger).toBeVisible();
   await trigger.click();
   const search = page.getByPlaceholder("Search repositories...");
   const refresh = page.getByTestId("repo-refresh-button");
@@ -93,6 +99,7 @@ async function openCreationDrawer(page: Page): Promise<Locator> {
   await action.click();
   const drawer = page.getByTestId("create-local-repository-drawer");
   await expect(drawer).toBeVisible();
+  await expect(page.getByTestId("mobile-repository-sheet-content")).toBeVisible();
   return drawer;
 }
 
@@ -223,6 +230,7 @@ test.describe("Create task with a new local repository on mobile", () => {
     await testPage.getByRole("textbox", { name: "Repository name" }).fill("dismissed-name");
     await testPage.keyboard.press("Escape");
     await expect(drawer).not.toBeVisible();
+    await expect(testPage.getByTestId("mobile-repository-sheet-content")).toBeVisible();
     await expect(testPage.getByTestId("repo-chip-trigger")).toBeFocused();
     expect(fs.existsSync(path.join(backend.tmpDir, "dismissed-name"))).toBe(false);
     await expect(testPage.getByTestId("task-title-input")).toHaveValue(
@@ -252,6 +260,7 @@ test.describe("Create task with a new local repository on mobile", () => {
     await expect(mainOption).toBeVisible();
     await mainOption.tap();
     await expect(branchSelector).toContainText("main");
+    await testPage.getByTestId("mobile-repository-done").tap();
     await expect(testPage.getByTestId("executor-profile-selector")).toContainText(
       directExecutor!.name,
     );

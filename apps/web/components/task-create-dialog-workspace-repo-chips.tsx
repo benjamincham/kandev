@@ -35,6 +35,7 @@ type WorkspaceRepoChipsProps = {
   repositories: Repository[];
   discoveredRepositories?: LocalRepository[];
   workspaceId: string | null;
+  repositoryLocked?: boolean;
   branchLocked?: boolean;
   isLocalExecutor?: boolean;
   currentLocalBranch?: string;
@@ -72,6 +73,7 @@ export function WorkspaceRepoChips({
   repositories,
   discoveredRepositories,
   workspaceId,
+  repositoryLocked,
   branchLocked,
   isLocalExecutor,
   currentLocalBranch,
@@ -111,6 +113,7 @@ export function WorkspaceRepoChips({
           // selectable; quick chat excludes a repository once another row uses it.
           excludedRepoIds={collectExcludedRepoIds(rows, row, allowDuplicateRepositories)}
           selectedElsewhere={collectSelectedRepoIdentities(rows, row)}
+          repositoryLocked={repositoryLocked}
           branchLocked={branchLocked}
           // For local-executor rows, seed row.branch with the workspace's
           // current branch via this prop. Non-local rows leave it undefined
@@ -147,13 +150,15 @@ export function WorkspaceRepoChips({
           onRemove={() => onRemove(row.key)}
         />
       ))}
-      {freshBranchToggle}
-      <AddRepositoryButton
-        canAddMore={canAddMore}
-        addHint={addHint}
-        addLabel={addLabel}
-        onAdd={onAdd}
-      />
+      {branchLocked ? null : freshBranchToggle}
+      {repositoryLocked ? null : (
+        <AddRepositoryButton
+          canAddMore={canAddMore}
+          addHint={addHint}
+          addLabel={addLabel}
+          onAdd={onAdd}
+        />
+      )}
     </>
   );
 }
@@ -171,7 +176,7 @@ export function WorkspaceRepoChips({
  * selectable; without that, after the user pairs (repo, branch) the chip
  * would suddenly render its current repo as unavailable.
  */
-function collectExcludedRepoIds(
+export function collectExcludedRepoIds(
   rows: TaskRepoRow[],
   currentRow: TaskRepoRow,
   allowDuplicateRepositories: boolean,
@@ -187,7 +192,10 @@ function collectExcludedRepoIds(
   return ids;
 }
 
-function collectSelectedRepoIdentities(rows: TaskRepoRow[], currentRow: TaskRepoRow): Set<string> {
+export function collectSelectedRepoIdentities(
+  rows: TaskRepoRow[],
+  currentRow: TaskRepoRow,
+): Set<string> {
   const identities = new Set<string>();
   for (const row of rows) {
     if (row.key === currentRow.key) continue;
@@ -205,7 +213,7 @@ function repoPathIdentity(path: string): string {
   return `path:${normalizeRepoPath(path)}`;
 }
 
-type RepoChipProps = {
+export type RepoChipProps = {
   row: TaskRepoRow;
   /** Required for path-based branch loading on discovered rows. */
   workspaceId: string | null;
@@ -215,6 +223,7 @@ type RepoChipProps = {
   excludedRepoIds: Set<string>;
   /** Repository identities selected in another row, rendered as a marker. */
   selectedElsewhere: Set<string>;
+  repositoryLocked?: boolean;
   /**
    * Lock the branch pill regardless of branch availability. Used for the
    * local executor where the user's actual checkout dictates the branch
@@ -413,7 +422,7 @@ function useRepoChipData({
 
 type RepoChipData = ReturnType<typeof useRepoChipData>;
 
-function RepoChip(props: RepoChipProps) {
+export function RepoChip(props: RepoChipProps) {
   const {
     row,
     workspaceId,
@@ -468,6 +477,7 @@ function RepoChipContent({
   row,
   repositories,
   discoveredRepositories,
+  repositoryLocked,
   branchLocked,
   branchValue,
   isLocalExecutor,
@@ -530,6 +540,7 @@ function RepoChipContent({
         onCreateRepository={onCreateRepository}
         onRefreshRepositories={onRefreshRepositories}
         repositoriesRefreshing={repositoriesRefreshing}
+        disabled={repositoryLocked}
         popoverHeader={
           showDiscoveryControls ? (
             <RepositoryDiscoveryControls workspaceId={workspaceId} presentation="picker" />
@@ -552,9 +563,10 @@ function RepoChipContent({
           branchesLoading={branchesLoading}
           onSelect={onBaseBranchChange ?? (() => undefined)}
           refreshBranches={refreshBranches}
+          branchLocked={branchLocked}
         />
       ) : null}
-      <RepoChipRemoveButton onRemove={onRemove} />
+      {repositoryLocked ? null : <RepoChipRemoveButton onRemove={onRemove} />}
     </span>
   );
 }

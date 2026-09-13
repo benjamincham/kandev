@@ -32,10 +32,21 @@ export function useRepositoryAutoSelectEffect(
   // pre-filled, but fall back to an empty row so the picker is visible
   // instead of just the "+" button. URL mode is excluded - that flow swaps
   // the chip row for a URL input.
-  const { repositories: rows, useRemote, setRepositories } = fs;
+  const { repositories: rows, useRemote } = fs;
+  const hydrateRepositories = fs.hydrateRepositories ?? fs.setRepositories;
+  const hasRemoteSelection = fs.repositorySelections
+    ? fs.repositorySelections.some((selection) => selection.kind === "remote")
+    : useRemote;
   const { lastUsedRepositoryId, userSettingsLoaded = true } = settings;
   useEffect(() => {
-    if (!open || !workspaceId || useRemote) return;
+    if (
+      !open ||
+      !workspaceId ||
+      fs.noRepository ||
+      hasRemoteSelection ||
+      fs.repositorySelectionsTouched
+    )
+      return;
     const decision = decideRepositoryAutoPick(
       repositories,
       lastUsedRepositoryId,
@@ -46,7 +57,7 @@ export function useRepositoryAutoSelectEffect(
     const { pickId } = decision;
     if (rows.length > 0 && !canReplaceEmptyRepositoryPlaceholder(rows, pickId)) return;
     void Promise.resolve().then(() => {
-      setRepositories((prev) => {
+      hydrateRepositories((prev) => {
         if (prev.length > 0) return replaceSeededRepositoryRows(prev, pickId);
         return [
           pickId ? buildRepositoryAutoPickRow("row-0", pickId) : { key: "row-0", branch: "" },
@@ -57,9 +68,11 @@ export function useRepositoryAutoSelectEffect(
     open,
     repositories,
     rows,
-    useRemote,
+    hasRemoteSelection,
+    fs.noRepository,
+    fs.repositorySelectionsTouched,
     workspaceId,
-    setRepositories,
+    hydrateRepositories,
     lastUsedRepositoryId,
     userSettingsLoaded,
   ]);

@@ -13,6 +13,8 @@ import { useToast } from "@/components/toast-provider";
 import { usePromptResultDelivery } from "@/hooks/use-prompt-result-delivery";
 import { useUtilityAgentGenerator } from "@/hooks/use-utility-agent-generator";
 import type { Repository } from "@/lib/types/http";
+import { hasUnavailablePickerRemoteProvider } from "@/components/task-create-dialog-remote-provider-readiness";
+import { resolveRepositorySelections } from "@/components/task-create-dialog-repositories-state";
 import type { SubtaskWorkspaceMode, useSubtaskFormState } from "./new-subtask-form-state";
 import { toContextItems, useDialogAttachments } from "./session-dialog-shared";
 import { t } from "@/lib/i18n";
@@ -80,6 +82,7 @@ async function createSubtask({
     workspaceMode === "inherit_parent"
       ? undefined
       : buildRepositoriesPayload({
+          selections: fs.repositorySelections,
           useRemote: fs.useRemote,
           remoteRepos: fs.remoteRepos,
           prInfoByUrl: fs.prInfoByUrl,
@@ -157,6 +160,15 @@ export function useSubtaskSubmit(opts: UseSubtaskSubmitOpts) {
       const prompt = resolvePrompt().trim();
       if ((!autoTitle && !trimmedTitle) || !prompt || !workspaceId || !workflowId) return;
       if (hasPendingAttachmentUploads(attachments)) return;
+      if (
+        workspaceMode !== "inherit_parent" &&
+        hasUnavailablePickerRemoteProvider(
+          resolveRepositorySelections(fs),
+          fs.remoteProviderReadiness,
+        )
+      ) {
+        return;
+      }
 
       isSubmittingRef.current = true;
       setIsCreating(true);

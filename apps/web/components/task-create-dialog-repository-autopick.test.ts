@@ -1,6 +1,7 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useRepositoryAutoSelectEffect } from "./task-create-dialog-repository-autopick";
+import { useRepositorySelectionState } from "./task-create-dialog-repositories-state";
 import type { DialogFormState, TaskRepoRow } from "@/components/task-create-dialog-types";
 import type { Repository } from "@/lib/types/http";
 const STORAGE_KEYS = { LAST_REPOSITORY_ID: "kandev.dialog.lastRepositoryId" } as const;
@@ -154,5 +155,85 @@ describe("useRepositoryAutoSelectEffect defaults", () => {
     const updater = setRepositories.mock.calls[0]![0] as (prev: TaskRepoRow[]) => TaskRepoRow[];
 
     expect(updater([])).toEqual([{ key: "row-0", repositoryId: "repo-1", branch: "" }]);
+  });
+
+  it("leaves an intentional no-repository draft empty", async () => {
+    const setRepositories = vi.fn();
+    const fs = {
+      ...makeRepoAutoSelectFs([], setRepositories),
+      noRepository: true,
+    } as unknown as DialogFormState;
+
+    renderHook(() => useRepositoryAutoSelectEffect(fs, true, "ws-1", [makeRepository("repo-1")]));
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(setRepositories).not.toHaveBeenCalled();
+  });
+});
+
+describe("useRepositoryAutoSelectEffect reducer integration", () => {
+  it("hydrates a placeholder after repositories load without marking the draft touched", async () => {
+    const { result, rerender } = renderHook(
+      ({ repositories }: { repositories: Repository[] }) => {
+        const selectionState = useRepositorySelectionState();
+        useRepositoryAutoSelectEffect(
+          {
+            ...selectionState,
+            noRepository: false,
+            useRemote: false,
+          } as unknown as DialogFormState,
+          true,
+          "ws-1",
+          repositories,
+        );
+        return selectionState;
+      },
+      { initialProps: { repositories: [] as Repository[] } },
+    );
+
+    await waitFor(() =>
+      expect(result.current.repositories).toEqual([{ key: "row-0", branch: "" }]),
+    );
+    expect(result.current.repositorySelectionsTouched).toBe(false);
+
+    rerender({ repositories: [makeRepository("repo-1")] });
+
+    await waitFor(() =>
+      expect(result.current.repositories).toEqual([
+        { key: "row-0", repositoryId: "repo-1", branch: "" },
+      ]),
+    );
+    expect(result.current.repositorySelectionsTouched).toBe(false);
+    expect(result.current.repositoriesDirty).toBe(false);
+  });
+
+  it("keeps an explicitly removed row removed when the auto-picker runs again", async () => {
+    const repository = makeRepository("repo-1");
+    const { result, rerender } = renderHook(
+      ({ repositories }: { repositories: Repository[] }) => {
+        const selectionState = useRepositorySelectionState();
+        useRepositoryAutoSelectEffect(
+          {
+            ...selectionState,
+            noRepository: false,
+            useRemote: false,
+          } as unknown as DialogFormState,
+          true,
+          "ws-1",
+          repositories,
+        );
+        return selectionState;
+      },
+      { initialProps: { repositories: [repository] } },
+    );
+
+    await waitFor(() => expect(result.current.repositories).toHaveLength(1));
+    act(() => result.current.removeRepository(result.current.repositories[0].key));
+    expect(result.current.repositories).toEqual([]);
+    expect(result.current.repositorySelectionsTouched).toBe(true);
+
+    rerender({ repositories: [repository] });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(result.current.repositories).toEqual([]);
   });
 });

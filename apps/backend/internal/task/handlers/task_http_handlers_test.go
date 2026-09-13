@@ -746,6 +746,32 @@ func TestConvertCreateTaskRepositoriesForwardsPRNumber(t *testing.T) {
 	}, repos[0])
 }
 
+func TestConvertCreateTaskRepositoriesPreservesMixedOrderAndProviderIdentity(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	repos, ok := convertCreateTaskRepositories(c, []httpTaskRepositoryInput{
+		{RepositoryID: "repo-local", BaseBranch: "develop", CheckoutBranch: "feature/local"},
+		{
+			RemoteURL: "https://git.example.test/acme/remote.git", BaseBranch: "main",
+			CheckoutBranch: "feature/remote", Provider: "fixture-source-control",
+			ProviderHost: "https://git.example.test", ProviderScope: "workspace-a",
+			ProviderRepoID: "remote-42", ProviderOwner: "acme", ProviderName: "remote", PRNumber: 42,
+		},
+	})
+
+	require.True(t, ok)
+	require.Len(t, repos, 2)
+	assert.Equal(t, dto.TaskRepositoryInput{RepositoryID: "repo-local", BaseBranch: "develop", CheckoutBranch: "feature/local"}, repos[0])
+	assert.Equal(t, dto.TaskRepositoryInput{
+		RemoteURL: "https://git.example.test/acme/remote.git", BaseBranch: "main",
+		CheckoutBranch: "feature/remote", Provider: "fixture-source-control",
+		ProviderHost: "https://git.example.test", ProviderScope: "workspace-a",
+		ProviderRepoID: "remote-42", ProviderOwner: "acme", ProviderName: "remote", PRNumber: 42,
+	}, repos[1])
+}
+
 func TestBuildTaskCreateLastUsedPatchRecordsFirstWorkspaceRepository(t *testing.T) {
 	patch := buildTaskCreateLastUsedPatch(httpCreateTaskRequest{
 		AgentProfileID:    "agent-2",

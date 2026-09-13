@@ -32,6 +32,7 @@ import type {
 } from "@/components/task-create-dialog-options";
 import type { useToast } from "@/components/toast-provider";
 import type { TaskCreateLaunchPreview } from "@/components/task-create-dialog-launch-preview";
+import type { TaskRemoteProviderReadinessMap } from "@/components/task-create-dialog-remote-provider-readiness";
 
 export type TaskCreateSubmit = (
   payload: Parameters<typeof createTask>[0],
@@ -125,6 +126,9 @@ export type TaskRepoRow = {
   branchPolicyId?: string;
 };
 
+/** A workspace or host-local repository in the ordered task draft. */
+export type TaskLocalRepositorySelection = TaskRepoRow & { kind: "local" };
+
 /** Repository fields needed to rehydrate an edit form without losing a policy snapshot. */
 export type TaskRepositorySnapshot = {
   repository_id: string;
@@ -168,6 +172,12 @@ export type TaskRemoteRepoRow = {
   fullName?: string; // "owner/name"
 };
 
+/** A provider-backed or pasted repository in the ordered task draft. */
+export type TaskRemoteRepositorySelection = TaskRemoteRepoRow & { kind: "remote" };
+
+/** Every repository attached to a task, in the order submitted to the backend. */
+export type TaskRepositorySelection = TaskLocalRepositorySelection | TaskRemoteRepositorySelection;
+
 export type StepType = {
   id: string;
   title: string;
@@ -191,6 +201,8 @@ export type TaskCreateDialogInitialValues = {
   preferLocalExecutor?: boolean;
   /** Existing task repository rows, including immutable policy snapshots. */
   repositories?: TaskRepositorySnapshot[];
+  /** Optional mixed draft supplied by callers that already have ordered rows. */
+  repositorySelections?: TaskRepositorySelection[];
   repositoryId?: string;
   branch?: string;
   /** Existing remote branch to check out directly in the worktree (e.g. a PR's head branch),
@@ -392,9 +404,20 @@ export type DialogFormState = {
    * order is the position the backend sees. There is no "primary" concept.
    */
   repositories: TaskRepoRow[];
+  /** Ordered local and remote rows. The legacy projections above remain for boundary adapters. */
+  repositorySelections?: TaskRepositorySelection[];
+  repositorySelectionsTouched?: boolean;
+  appendRepositorySelection?: (
+    selection:
+      | Omit<TaskLocalRepositorySelection, "key">
+      | Omit<TaskRemoteRepositorySelection, "key">,
+  ) => string;
+  resetRepositorySelections?: (v: TaskRepositorySelection[]) => void;
   /** False while rows are hydrated from an existing task; true after user edits. */
   repositoriesDirty: boolean;
   setRepositories: React.Dispatch<React.SetStateAction<TaskRepoRow[]>>;
+  /** Applies automatic local-row defaults without marking the draft as user-edited. */
+  hydrateRepositories?: React.Dispatch<React.SetStateAction<TaskRepoRow[]>>;
   setRepositoriesDirty: (dirty: boolean) => void;
   addRepository: () => void;
   removeRepository: (key: string) => void;
@@ -409,6 +432,9 @@ export type DialogFormState = {
   addRemoteRepo: () => void;
   removeRemoteRepo: (key: string) => void;
   updateRemoteRepo: (key: string, patch: Partial<TaskRemoteRepoRow>) => void;
+  /** Current readiness of provider connections used by picker-selected rows. */
+  remoteProviderReadiness?: TaskRemoteProviderReadinessMap;
+  setRemoteProviderReadiness?: (value: TaskRemoteProviderReadinessMap) => void;
   /**
    * Per-URL branches cache. Each chip reads its own row's branches by URL;
    * no dialog-level singleton branch field remains.
@@ -491,8 +517,12 @@ export type SubmitHandlersDeps = {
   effectiveWorkflowId: string | null;
   /** Unified repo list from the form. Empty when in GitHub URL mode. */
   repositories: TaskRepoRow[];
+  /** Ordered mixed repository rows. When present, this is the source of truth for submission. */
+  repositorySelections?: TaskRepositorySelection[];
   /** Whether the user explicitly changed repository selections in this form. */
   repositoriesDirty: boolean;
+  /** Readiness for provider-backed picker rows. Pasted URLs do not use this gate. */
+  remoteProviderReadiness?: TaskRemoteProviderReadinessMap;
   /** All on-machine discovered repos — used to look up `default_branch` for `localPath` rows. */
   discoveredRepositories: LocalRepository[];
   /** Workspace repositories — used to look up `default_branch` for `repositoryId` rows. */
@@ -548,6 +578,7 @@ export type SubmitHandlersDeps = {
   setTaskName: (v: string) => void;
   setRepositories: React.Dispatch<React.SetStateAction<TaskRepoRow[]>>;
   setRemoteRepos: React.Dispatch<React.SetStateAction<TaskRemoteRepoRow[]>>;
+  resetRepositorySelections?: (v: TaskRepositorySelection[]) => void;
   setAgentProfileId: (v: string) => void;
   setExecutorId: (v: string) => void;
   setSelectedWorkflowId: (v: string | null) => void;
@@ -619,6 +650,8 @@ export type DialogFormBodyProps = {
   onRowRepositoryChange: (key: string, value: string) => void;
   onRowBranchChange: (key: string, value: string) => void;
   onRowPolicyChange?: (key: string, policyId: string, baseBranch: string) => void;
+  repositoryLocked?: boolean;
+  branchLocked?: boolean;
   onAgentProfileChange: (v: string) => void;
   onExecutorProfileChange: (v: string) => void;
   onWorkflowChange: (v: string) => void;
