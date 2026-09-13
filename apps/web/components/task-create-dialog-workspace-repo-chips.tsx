@@ -3,7 +3,6 @@
 import { useMemo } from "react";
 import { IconX } from "@tabler/icons-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@kandev/ui/tooltip";
-import { useBranches, type BranchSource } from "@/hooks/domains/workspace/use-repository-branches";
 import type { LocalRepository, Repository, RepositoryBranchPolicy } from "@/lib/types/http";
 import type { TaskRepoRow } from "@/components/task-create-dialog-types";
 import { type PillOption } from "@/components/task-create-dialog-pill";
@@ -18,7 +17,7 @@ import {
   computeBranchIntent,
   type BranchIntent,
 } from "@/components/task-create-dialog-branch-utils";
-import { useRepoBranchAutoselect } from "@/components/task-create-dialog-repo-branch-autoselect";
+import { useRepositoryBranchData } from "@/components/task-create-dialog-repository-branch-data";
 import { useRepositoryBranchPolicies } from "@/hooks/domains/workspace/use-repository-branch-policies";
 import {
   RepoChipBaseBranchPill,
@@ -279,58 +278,6 @@ export type RepoChipProps = {
   repositoriesRefreshing?: boolean;
 };
 
-function useRepoChipBranchData({
-  row,
-  workspaceId,
-  onBranchChange,
-  branchValue,
-  preferredDefaultBranch,
-  preferredDefaultBranchLoading,
-  lastUsedBranch,
-  userSettingsLoaded,
-}: Pick<
-  RepoChipProps,
-  | "row"
-  | "workspaceId"
-  | "onBranchChange"
-  | "branchValue"
-  | "preferredDefaultBranch"
-  | "preferredDefaultBranchLoading"
-  | "lastUsedBranch"
-  | "userSettingsLoaded"
-  | "savedBaseBranch"
-  | "isLocalExecutor"
->) {
-  const branchSource = useMemo<BranchSource | null>(() => {
-    if (!workspaceId) return null;
-    if (row.repositoryId) {
-      return { kind: "id", workspaceId, repositoryId: row.repositoryId };
-    }
-    if (row.localPath) {
-      return { kind: "path", workspaceId, path: row.localPath };
-    }
-    return null;
-  }, [workspaceId, row.repositoryId, row.localPath]);
-  const {
-    branches,
-    isLoading: branchesLoading,
-    refresh: refreshBranches,
-    isLoaded: branchesLoaded,
-  } = useBranches(branchSource, !!branchSource);
-  useRepoBranchAutoselect({
-    branchSource,
-    branchesLoading,
-    branches,
-    rowBranch: branchValue,
-    onBranchChange,
-    preferredDefaultBranch,
-    preferredDefaultBranchLoading,
-    lastUsedBranch,
-    userSettingsLoaded,
-  });
-  return { branches, branchesLoading, branchesLoaded, refreshBranches };
-}
-
 function useRepoChipData({
   row,
   workspaceId,
@@ -380,7 +327,7 @@ function useRepoChipData({
         (!excludedRepoIds.has(r.path) || r.path === row.localPath),
     );
   }, [filteredRepos, discoveredRepositories, excludedRepoIds, row.localPath]);
-  const { branches, branchesLoading, branchesLoaded, refreshBranches } = useRepoChipBranchData({
+  const { branches, branchesLoading, branchesLoaded, refreshBranches } = useRepositoryBranchData({
     row,
     workspaceId,
     onBranchChange,

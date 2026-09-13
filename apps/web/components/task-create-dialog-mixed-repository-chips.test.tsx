@@ -68,6 +68,15 @@ vi.mock("@/components/task-create-dialog-workspace-repo-chips", () => ({
   collectSelectedRepoIdentities: () => new Set<string>(),
 }));
 
+vi.mock("@/components/task-create-dialog-repository-branch-data", () => ({
+  useRepositoryBranchData: () => ({
+    branches: [],
+    branchesLoading: false,
+    branchesLoaded: false,
+    refreshBranches: undefined,
+  }),
+}));
+
 vi.mock("@/components/task-create-dialog-remote-repo-chip", () => ({
   RemoteRepoChip: ({ row }: { row: { key: string } }) => (
     <div data-testid="mixed-remote-row">{row.key}</div>

@@ -28,10 +28,8 @@ import { useRemoteRepositories } from "@/hooks/domains/integrations/use-remote-r
 import type { RemoteRepository } from "@/hooks/domains/integrations/use-remote-repositories";
 import { FolderPicker } from "@/components/folder-picker";
 import type { LocalRepositoryChoice } from "@/components/task-create-dialog-repository-picker";
-import {
-  DesktopMixedRepositoryChips,
-  MobileMixedRepositoryChips,
-} from "@/components/task-create-dialog-mixed-repository-chips-surfaces";
+import { DesktopMixedRepositoryChips } from "@/components/task-create-dialog-mixed-repository-chips-surfaces";
+import { MobileMixedRepositorySurface } from "@/components/task-create-dialog-mobile-mixed-repository-surface";
 import { useTouchDrawer } from "@/hooks/use-compact-task-chrome";
 import { computeBranchIntent } from "@/components/task-create-dialog-branch-utils";
 import { isPickerRemoteProviderUnavailable } from "@/components/task-create-dialog-remote-provider-readiness";
@@ -129,25 +127,14 @@ export function MixedRepositoryChips(props: MixedRepositoryChipsProps) {
 
   if (mobile) {
     return (
-      <MobileMixedRepositoryChips
-        repositories={props.repositories}
-        discoveredRepositories={props.fs.discoveredRepositories}
+      <MobileMixedRepositorySurface
+        props={props}
+        localRows={localRows}
         accessible={accessible}
-        workspaceId={props.workspaceId}
         selectionsCount={selections.length}
         selectionRows={selectionRows}
         folderPicker={folderPicker}
-        freshBranchToggle={props.freshBranchToggle}
-        branchLocked={props.branchLocked}
-        repositoryLocked={props.repositoryLocked}
-        repositorySets={props.repositorySets}
-        onSelectLocal={actions.addLocal}
-        onSelectRemote={actions.addRemote}
-        onPasteRemote={actions.addPastedRemote}
-        onCreateRepository={props.onCreateRepository ? actions.openNewLocalRepository : undefined}
-        onRefreshRepositories={props.onRefreshRepositories}
-        repositoriesRefreshing={props.repositoriesRefreshing}
-        repositoryCreationOpen={props.repositoryCreationOpen}
+        actions={actions}
       />
     );
   }
