@@ -341,6 +341,52 @@ Composer Send and plan-comment Run wait for this migration gate. Comment CRUD
 and other local comment types are not blocked. If no current plan exists, the
 legacy records remain in storage for recovery rather than being discarded.
 
+### Migration notice states
+
+`usePlanCommentMigration` separates routine checks from actual legacy migration.
+The proposed `checking` value extends `PlanCommentMigrationStatus` without adding
+persistent state. The existing task-keyed status remains the delivery gate.
+
+| Status | Meaning | Notice |
+| --- | --- | --- |
+| `idle` | Prerequisites or a fresh scan are pending | None |
+| `checking` | Routine snapshot fetch or retry prerequisite load is pending | None |
+| `running` | At least one task-owned legacy plan record requires migration | Existing restoration progress |
+| `waiting_for_plan` | Legacy records exist without a current plan | Existing missing-plan recovery |
+| `failed` | Prerequisite load, migration, or snapshot refresh failed | Existing error and Retry |
+| `complete` | The migration gate resolved | None |
+
+After prerequisite discovery, the hook scans only the open task's session IDs.
+A current plan with zero legacy records enters `checking`. It still fetches the
+authoritative snapshot before completion. A nonempty scan enters `running` and
+retains that state through the post-migration snapshot fetch. Without a current
+plan, an empty scan completes and a nonempty scan enters `waiting_for_plan`.
+
+Retry enters `checking` while task sessions reload. Once prerequisites resolve,
+the hook scans remaining records and selects the matching state. A partial
+migration failure retains unacknowledged records and the existing Retry action.
+Snapshot-only failure remains visible even when no legacy records remain.
+
+The effect treats both `checking` and `running` as active work. Both states
+prevent duplicate starts and leave settlement to their current asynchronous
+operation. Plan-identity guards, per-store run deduplication, and revision checks
+remain in force. A changed plan resets the gate through the existing slice.
+No browser-wide completion marker suppresses later scans.
+
+`PlanCommentMigrationNotice` returns no markup for `idle`, `checking`, or
+`complete`. Other states retain existing localized text, status/alert semantics,
+and retry controls. Structured chat, passthrough chat, and `TaskPlanPanel` share
+this component. Banner visibility never changes `isReady`, `isBlocking`, or the
+Send/Run admission guards: only `complete` resolves the migration gate.
+
+Desktop and phone retain the existing inline notice above the composer or Plan
+content. The phone exemplar is the task chat surface in `task-layout.tsx` and
+its existing `PlanCommentMigrationNotice`. Phone navigation, safe-area handling,
+scroll ownership, and the coarse-pointer Retry target remain unchanged.
+
+This refines `AC-TASKS-PLAN-COMMENTS-004.5` through `.7`. Implementation is tracked
+in the [quiet migration notice package](../../../plans/quiet-plan-comment-restoration/plan.md).
+
 ## Failure and recovery
 
 - Failed load or migration shows a retryable comment-context error. Kandev does

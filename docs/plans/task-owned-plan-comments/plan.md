@@ -245,3 +245,12 @@ while Task 04 changes frontend migration code and tests.
   happen per acknowledged UUID, never by deleting an entire session key.
 - A stale or failed comment load must fail closed for comment-bearing delivery
   without blocking comment-free messages on tasks that have no plan.
+
+
+## Follow-up: quiet restoration notice
+
+The [quiet restoration package](../quiet-plan-comment-restoration/plan.md) extends
+migration notice coverage under `AC-TASKS-PLAN-COMMENTS-004.5` through `.7`.
+It owns the pending hook, component, and desktop/phone refresh regressions.
+The completed work orders and historical results in this package retain their
+original scope. They do not certify the new notice behavior.

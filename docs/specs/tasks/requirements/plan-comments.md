@@ -161,6 +161,18 @@ must move to task ownership without another comment-loss window.
   retryable. It shall not silently discard a draft or send a message without
   the legacy plan comments that the composer represented.
 
+- **AC-TASKS-PLAN-COMMENTS-004.5:** During initial load or refresh, Kandev shall
+  keep routine comment checks silent. A restoration notice shall appear only
+  after Kandev finds at least one legacy plan comment for the open task.
+  Backend comments and non-plan browser comments shall not trigger this notice.
+- **AC-TASKS-PLAN-COMMENTS-004.6:** During actual legacy migration, Kandev shall
+  show an accessible progress notice until the migration settles. Missing-plan
+  recovery and retryable errors shall remain visible. Hiding routine progress
+  shall not enable delivery before comment readiness is established.
+- **AC-TASKS-PLAN-COMMENTS-004.7:** Desktop and phone Plan surfaces and session
+  composers shall use the same notice conditions. After successful migration,
+  another refresh shall not show restoration unless legacy plan comments remain.
+
 ## Out of scope
 
 - Changing the task-session ownership of diff, file, pull-request,
