@@ -22,7 +22,10 @@ import type {
   DialogFormState,
 } from "@/components/task-create-dialog-types";
 import type { TaskRemoteProviderReadinessMap } from "@/components/task-create-dialog-remote-provider-readiness";
-import { useRepositorySelectionState } from "@/components/task-create-dialog-repositories-state";
+import {
+  useRemoteReposSeedEffect,
+  useRepositorySelectionState,
+} from "@/components/task-create-dialog-repositories-state";
 import { useDialogComputed } from "@/components/task-create-dialog-computed";
 import { createDebugLogger } from "@/lib/debug/log";
 import { clampTaskTitleInput, truncateRemoteTaskTitle } from "@/lib/task-title";
@@ -359,6 +362,7 @@ export function useDialogFormState(
   const ghUrl = useGitHubUrlState();
   const wfAgent = useWorkflowAgentProfileState();
   const repos = useRepositorySelectionState();
+  useRemoteReposSeedEffect(ghUrl.useRemote, repos.remoteRepos, repos.setRemoteRepos);
   const freshBranch = useFreshBranchState();
   const dependencies = useTaskDependencyState();
   const branchesByUrl = useBranchesByURL(workspaceId);

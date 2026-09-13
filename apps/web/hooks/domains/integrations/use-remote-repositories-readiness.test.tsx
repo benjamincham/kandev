@@ -155,11 +155,12 @@ describe("useRemoteRepositories readiness", () => {
       enabled: true,
       tested: available,
     }));
+    const listRepositories = vi.fn().mockResolvedValue([]);
     pluginRegistry.forPlugin(PLUGIN_ID).registerRepositoryProvider({
       id: "bitbucket",
       label: "Bitbucket",
       getAvailability,
-      listRepositories: async () => [],
+      listRepositories,
       matchesURL: () => false,
       listBranches: async () => [],
       inspectURL: async () => null,
@@ -168,6 +169,18 @@ describe("useRemoteRepositories readiness", () => {
     const { result } = renderHook(() => useRemoteRepositories(WORKSPACE_ID));
 
     await waitFor(() => expect(result.current.availableProviders).toContain("bitbucket"));
+    await waitFor(() => expect(listRepositories).toHaveBeenCalledTimes(1));
+
+    act(() => invalidateIntegrationAvailability());
+    await waitFor(() => {
+      expect(result.current.providerCatalog).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ provider: "bitbucket", readiness: "ready" }),
+        ]),
+      );
+    });
+    expect(listRepositories).toHaveBeenCalledTimes(1);
+
     available = false;
     act(() => invalidateIntegrationAvailability());
 
@@ -179,6 +192,7 @@ describe("useRemoteRepositories readiness", () => {
       );
     });
     expect(result.current.availableProviders).not.toContain("bitbucket");
-    expect(getAvailability).toHaveBeenCalledTimes(2);
+    expect(getAvailability).toHaveBeenCalledTimes(3);
+    expect(listRepositories).toHaveBeenCalledTimes(1);
   });
 });

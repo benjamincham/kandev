@@ -16,7 +16,8 @@ export function isPickerRemoteProviderUnavailable(
   row: TaskRemoteRepoRow,
   readiness: TaskRemoteProviderReadinessMap | undefined,
 ): boolean {
-  if (!readiness || !row.provider) return false;
+  if (!row.provider) return false;
+  if (!readiness) return true;
   return readiness[row.provider] !== "ready";
 }
 

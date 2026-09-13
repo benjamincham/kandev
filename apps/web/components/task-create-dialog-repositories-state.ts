@@ -113,18 +113,21 @@ function replaceKind(
   rows: TaskRepoRow[] | TaskRemoteRepoRow[],
   markChanged = true,
 ): RepositorySelectionState {
-  let index = 0;
-  const selections = state.selections.map((selection) => {
-    if (selection.kind !== kind) return selection;
-    const row = rows[index++];
-    return row ? ({ ...row, kind } as TaskRepositorySelection) : null;
-  });
-  const next = selections.filter(
-    (selection): selection is TaskRepositorySelection => selection !== null,
+  const rowsByKey = new Map(rows.map((row) => [row.key, row]));
+  const existingKeys = new Set(
+    state.selections
+      .filter((selection) => selection.kind === kind)
+      .map((selection) => selection.key),
   );
-  while (index < rows.length) {
-    const row = rows[index++];
-    next.push({ ...row, kind } as TaskRepositorySelection);
+  const next = state.selections.flatMap((selection) => {
+    if (selection.kind !== kind) return [selection];
+    const row = rowsByKey.get(selection.key);
+    return row ? [{ ...row, kind } as TaskRepositorySelection] : [];
+  });
+  for (const row of rows) {
+    if (!existingKeys.has(row.key)) {
+      next.push({ ...row, kind } as TaskRepositorySelection);
+    }
   }
   const nextState = { ...state, selections: next };
   return markChanged ? markSelectionChanged(nextState) : nextState;

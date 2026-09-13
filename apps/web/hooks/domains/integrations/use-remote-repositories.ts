@@ -221,6 +221,7 @@ function builtInProviderReadiness(
 
 type PluginRepositoryAvailabilityState = {
   scopeKey: string;
+  providerScopeKey: string;
   providerCatalog: RemoteRepositoryProviderCatalogEntry[];
   readyProviders: PluginRepositoryProviderRegistration[];
   sourceErrors: RemoteRepositorySourceError[];
@@ -257,19 +258,87 @@ function initialPluginProviderCatalog(
   }));
 }
 
-function usePluginRepositoryAvailability(
-  workspaceId: string,
+function reusableReadyProviders(
+  previous: PluginRepositoryAvailabilityState,
+  providerScopeKey: string,
   providers: PluginRepositoryProviderRegistration[],
-  refreshVersion: number,
+): PluginRepositoryProviderRegistration[] {
+  if (previous.providerScopeKey !== providerScopeKey) return [];
+  const reusable = previous.readyProviders.filter(
+    (provider) => provider.getAvailability && providers.includes(provider),
+  );
+  return reusable.length === previous.readyProviders.length ? previous.readyProviders : reusable;
+}
+
+function initialPluginAvailabilityState(
+  scopeKey: string,
+  providerScopeKey: string,
+  providers: PluginRepositoryProviderRegistration[],
 ): PluginRepositoryAvailabilityState {
-  const scopeKey = `${workspaceId}\u0000${providers.map((provider) => provider.id).join("\u0000")}\u0000${refreshVersion}`;
-  const [state, setState] = useState<PluginRepositoryAvailabilityState>(() => ({
+  return {
     scopeKey,
+    providerScopeKey,
     providerCatalog: initialPluginProviderCatalog(providers),
     readyProviders: [],
     sourceErrors: [],
     loading: false,
-  }));
+  };
+}
+
+function buildPluginAvailabilityLoadingState({
+  previous,
+  scopeKey,
+  providerScopeKey,
+  providerCatalog,
+  providers,
+  workspaceId,
+}: {
+  previous: PluginRepositoryAvailabilityState;
+  scopeKey: string;
+  providerScopeKey: string;
+  providerCatalog: RemoteRepositoryProviderCatalogEntry[];
+  providers: PluginRepositoryProviderRegistration[];
+  workspaceId: string;
+}): PluginRepositoryAvailabilityState {
+  const providersWithAvailability = providers.filter((provider) => provider.getAvailability);
+  return {
+    scopeKey,
+    providerScopeKey,
+    providerCatalog,
+    readyProviders: reusableReadyProviders(previous, providerScopeKey, providers),
+    sourceErrors: [],
+    loading: Boolean(workspaceId) && providersWithAvailability.length > 0,
+  };
+}
+
+function stalePluginAvailabilityState(
+  state: PluginRepositoryAvailabilityState,
+  scopeKey: string,
+  providerScopeKey: string,
+  providers: PluginRepositoryProviderRegistration[],
+  workspaceId: string,
+): PluginRepositoryAvailabilityState {
+  return {
+    scopeKey,
+    providerScopeKey,
+    providerCatalog: initialPluginProviderCatalog(providers),
+    readyProviders: reusableReadyProviders(state, providerScopeKey, providers),
+    sourceErrors: [],
+    loading: Boolean(workspaceId) && providers.some((provider) => provider.getAvailability),
+  };
+}
+
+function usePluginRepositoryAvailability(
+  workspaceId: string,
+  providers: PluginRepositoryProviderRegistration[],
+  refreshVersion: number,
+  readinessVersion: number,
+): PluginRepositoryAvailabilityState {
+  const providerScopeKey = `${workspaceId}\u0000${providers.map((provider) => provider.id).join("\u0000")}`;
+  const scopeKey = `${providerScopeKey}\u0000${refreshVersion}\u0000${readinessVersion}`;
+  const [state, setState] = useState<PluginRepositoryAvailabilityState>(() =>
+    initialPluginAvailabilityState(scopeKey, providerScopeKey, providers),
+  );
   const generationRef = useRef(0);
 
   useEffect(() => {
@@ -278,13 +347,16 @@ function usePluginRepositoryAvailability(
     let cancelled = false;
     const initialCatalog = initialPluginProviderCatalog(providers);
     const providersWithAvailability = providers.filter((provider) => provider.getAvailability);
-    setState({
-      scopeKey,
-      providerCatalog: initialCatalog,
-      readyProviders: [],
-      sourceErrors: [],
-      loading: Boolean(workspaceId) && providersWithAvailability.length > 0,
-    });
+    setState((previous) =>
+      buildPluginAvailabilityLoadingState({
+        previous,
+        scopeKey,
+        providerScopeKey,
+        providerCatalog: initialCatalog,
+        providers,
+        workspaceId,
+      }),
+    );
     if (!workspaceId || providersWithAvailability.length === 0) {
       return () => {
         cancelled = true;
@@ -325,37 +397,48 @@ function usePluginRepositoryAvailability(
             }
           : entry;
       });
-      const readyProviders = results
+      const nextReadyProviders = results
         .filter((result) => result.readiness === "ready")
         .map((result) => result.provider);
       const sourceErrors = results.flatMap((result) =>
         result.error ? [{ provider: result.provider.id, error: result.error }] : [],
       );
-      setState({ scopeKey, providerCatalog, readyProviders, sourceErrors, loading: false });
+      setState((previous) => ({
+        scopeKey,
+        providerScopeKey,
+        providerCatalog,
+        readyProviders: sameProviders(previous.readyProviders, nextReadyProviders)
+          ? previous.readyProviders
+          : nextReadyProviders,
+        sourceErrors,
+        loading: false,
+      }));
     };
     void load();
     return () => {
       cancelled = true;
       controller.abort();
     };
-  }, [providers, refreshVersion, workspaceId]);
+  }, [providers, readinessVersion, refreshVersion, workspaceId]);
 
   if (state.scopeKey !== scopeKey) {
-    return {
-      scopeKey,
-      providerCatalog: initialPluginProviderCatalog(providers),
-      readyProviders: [],
-      sourceErrors: [],
-      loading: Boolean(workspaceId) && providers.some((provider) => provider.getAvailability),
-    };
+    return stalePluginAvailabilityState(state, scopeKey, providerScopeKey, providers, workspaceId);
   }
   return state;
+}
+
+function sameProviders(
+  left: PluginRepositoryProviderRegistration[],
+  right: PluginRepositoryProviderRegistration[],
+): boolean {
+  return left.length === right.length && left.every((provider, index) => provider === right[index]);
 }
 
 export function useRemoteRepositories(workspaceId: string): UseRemoteRepositoriesResult {
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebouncedValue(query, 250);
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const [readinessVersion, setReadinessVersion] = useState(0);
   const registry = usePluginRegistry();
   const registryVersion = registry.getVersion();
   const pluginProviders = useMemo(
@@ -367,6 +450,7 @@ export function useRemoteRepositories(workspaceId: string): UseRemoteRepositorie
     workspaceId,
     pluginProviders,
     refreshVersion,
+    readinessVersion,
   );
   const { eligibility, refresh: refreshBuiltIns } = builtInAccess;
   const builtInSource = useBuiltInRepositorySource(workspaceId, refreshVersion, eligibility);
@@ -409,18 +493,23 @@ export function useRemoteRepositories(workspaceId: string): UseRemoteRepositorie
   );
   const error = sourceErrors[0]?.error ?? null;
   const search = useCallback((value: string) => setQuery(value), []);
+  const refreshReadiness = useCallback(() => {
+    refreshBuiltIns();
+    setReadinessVersion((version) => version + 1);
+  }, [refreshBuiltIns]);
   const refresh = useCallback(() => {
     refreshBuiltIns();
     setRefreshVersion((version) => version + 1);
+    setReadinessVersion((version) => version + 1);
   }, [refreshBuiltIns]);
   useEffect(() => {
-    const unsubscribe = subscribeIntegrationAvailability(refresh);
-    const interval = window.setInterval(refresh, INTEGRATION_STATUS_REFRESH_MS);
+    const unsubscribe = subscribeIntegrationAvailability(refreshReadiness);
+    const interval = window.setInterval(refreshReadiness, INTEGRATION_STATUS_REFRESH_MS);
     return () => {
       unsubscribe();
       window.clearInterval(interval);
     };
-  }, [refresh]);
+  }, [refreshReadiness]);
   const matchesURL = useCallback(
     (url: string) =>
       looksLikeSupportedRemoteURL(url) ||

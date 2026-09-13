@@ -131,6 +131,35 @@ describe("repositorySelectionReducer", () => {
   });
 });
 
+describe("repositorySelectionReducer row reconciliation", () => {
+  it("updates rows by key without reordering interleaved selections", () => {
+    const initial = {
+      selections: [
+        local("local-1", "repo-first"),
+        remote(REMOTE_SELECTION_KEY, REMOTE_REPOSITORY_URL),
+        local("local-2", "repo-second"),
+      ],
+      touched: true,
+      dirty: true,
+    };
+
+    const next = repositorySelectionReducer(initial, {
+      type: "set-local",
+      rows: [{ key: "local-2", repositoryId: "repo-second-updated", branch: "release" }],
+    });
+
+    expect(next.selections).toEqual([
+      remote(REMOTE_SELECTION_KEY, REMOTE_REPOSITORY_URL),
+      {
+        kind: "local",
+        key: "local-2",
+        repositoryId: "repo-second-updated",
+        branch: "release",
+      },
+    ]);
+  });
+});
+
 describe("useRepositorySelectionState", () => {
   it("replaces the seeded empty row when the picker adds the first repository", () => {
     const { result } = renderHook(() => useRepositorySelectionState());

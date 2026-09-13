@@ -128,6 +128,14 @@ describe("computeHasAllBranches provider readiness", () => {
         }),
       ),
     ).toBe(true);
+    expect(
+      computeHasAllBranches(
+        formState({
+          repositorySelections: [selection],
+          remoteProviderReadiness: undefined,
+        }),
+      ),
+    ).toBe(false);
   });
 
   it("does not gate a supported pasted URL on provider catalog readiness", () => {

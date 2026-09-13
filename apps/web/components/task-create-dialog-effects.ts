@@ -122,7 +122,10 @@ export function useCurrentLocalBranchEffect(
   repositories: Repository[],
 ) {
   const { setCurrentLocalBranch, setCurrentLocalBranchLoading } = fs;
-  const selections = resolveRepositorySelections(fs);
+  const selections = useMemo(
+    () => resolveRepositorySelections(fs),
+    [fs.repositorySelections, fs.repositories, fs.remoteRepos, fs.useRemote],
+  );
   useEffect(() => {
     if (!open || !workspaceId || selections.length !== 1 || selections[0]?.kind !== "local") {
       setCurrentLocalBranch("");

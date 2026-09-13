@@ -269,7 +269,7 @@ function MixedRepositorySurface({
         onRefreshRepositories={onRefreshRepositories}
         repositoriesRefreshing={repositoriesRefreshing}
         repositorySets={
-          repositorySets ? (
+          repositorySets && !repositoryLocked && !branchLocked ? (
             <RepositorySetsSurface
               repositorySets={repositorySets}
               repositories={repositories}
@@ -346,19 +346,21 @@ function LegacyRepositorySurface({
         onRefreshRepositories={onRefreshRepositories}
         repositoriesRefreshing={repositoriesRefreshing}
       />
-      {repositorySets && !fs.useRemote && !fs.noRepository ? (
+      {repositorySets && !repositoryLocked && !branchLocked && !fs.useRemote && !fs.noRepository ? (
         <RepositorySetsSurface
           repositorySets={repositorySets}
           repositories={repositories}
           rows={fs.repositories}
         />
       ) : null}
-      <SourceModeSwitch
-        useRemote={fs.useRemote}
-        noRepository={fs.noRepository}
-        onToggleRemote={onToggleRemote}
-        onToggleNoRepository={onToggleNoRepository}
-      />
+      {repositoryLocked ? null : (
+        <SourceModeSwitch
+          useRemote={fs.useRemote}
+          noRepository={fs.noRepository}
+          onToggleRemote={onToggleRemote}
+          onToggleNoRepository={onToggleNoRepository}
+        />
+      )}
       <LocalRepositoryCreationSurface
         creation={localRepositoryCreation}
         target={creation.target}
