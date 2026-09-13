@@ -8,6 +8,7 @@ import {
   removeAcknowledgedLegacyPlanComment,
 } from "@/lib/state/slices/comments/persistence";
 import type { AppState } from "@/lib/state/store";
+import type { PlanCommentMigrationStatus } from "@/lib/state/slices/session/types";
 import type { TaskPlan } from "@/lib/types/http";
 import { planCommentAdmissionConflict } from "@/lib/plan-comment-refs";
 
@@ -27,11 +28,21 @@ function planIdentityMatches(state: AppState, taskId: string, plan: TaskPlan | n
   return (state.taskPlans.byTaskId[taskId]?.id ?? null) === (plan?.id ?? null);
 }
 
+function canTransitionToMigrationFailure(status: PlanCommentMigrationStatus) {
+  return status !== "complete" && status !== "checking" && status !== "running";
+}
+
+function shouldSkipMigrationStart(status: PlanCommentMigrationStatus) {
+  return (
+    status === "checking" || status === "running" || status === "complete" || status === "failed"
+  );
+}
+
 function setStatusIfCurrent(
   store: AppStore,
   taskId: string,
   plan: TaskPlan | null,
-  status: "running" | "complete" | "waiting_for_plan" | "failed",
+  status: "checking" | "running" | "complete" | "waiting_for_plan" | "failed",
 ) {
   const state = store.getState();
   if (planIdentityMatches(state, taskId, plan)) {
@@ -104,7 +115,7 @@ async function migrateLegacyComments(
     return;
   }
 
-  setStatusIfCurrent(store, taskId, plan, "running");
+  setStatusIfCurrent(store, taskId, plan, records.length > 0 ? "running" : "checking");
   let failed = false;
   for (const record of records) {
     if (!planIdentityMatches(store.getState(), taskId, plan)) return;
@@ -154,17 +165,12 @@ export function usePlanCommentMigration(taskId: string | null | undefined) {
   const sessionIds = useMemo(() => sessions.map((session) => session.id), [sessions]);
 
   useEffect(() => {
-    if (
-      taskId &&
-      status !== "complete" &&
-      status !== "running" &&
-      (sessionsError || planLoadError)
-    ) {
+    if (taskId && canTransitionToMigrationFailure(status) && (sessionsError || planLoadError)) {
       store.getState().setTaskPlanCommentMigrationStatus(taskId, "failed");
       return;
     }
     if (!taskId || !sessionsLoaded || !planLoaded || plan === undefined) return;
-    if (status === "running" || status === "complete" || status === "failed") return;
+    if (shouldSkipMigrationStart(status)) return;
     if (status === "waiting_for_plan" && plan === null) return;
     void startMigration(taskId, plan, sessionIds, store);
   }, [
@@ -182,7 +188,7 @@ export function usePlanCommentMigration(taskId: string | null | undefined) {
   const retry = useCallback(async () => {
     if (!taskId) return;
     const state = store.getState();
-    state.setTaskPlanCommentMigrationStatus(taskId, "running");
+    state.setTaskPlanCommentMigrationStatus(taskId, "checking");
     state.setTaskPlanCommentsError(taskId);
     await loadSessions(true);
     const next = store.getState();

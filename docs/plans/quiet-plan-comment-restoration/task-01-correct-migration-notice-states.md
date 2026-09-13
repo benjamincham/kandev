@@ -1,7 +1,7 @@
 ---
 id: "01-correct-migration-notice-states"
 title: "Correct migration notice states"
-status: pending
+status: done
 wave: 1
 depends_on: []
 plan: "plan.md"
@@ -105,7 +105,7 @@ repository root after implementation:
 ```bash
 (cd apps/web && pnpm exec vitest run hooks/domains/comments/use-plan-comment-migration.test.tsx components/task/plan-comment-migration-notice.test.tsx lib/state/slices/comments/persistence.test.ts hooks/domains/comments/use-run-comment.test.ts components/task/chat/chat-input-area.test.ts components/task/chat/chat-input-area.test.tsx components/task/passthrough-chat-composer.test.ts)
 (cd apps/web && pnpm run typecheck)
-(cd apps/web && pnpm exec eslint lib/state/slices/session/types.ts hooks/domains/comments/use-plan-comment-migration.ts hooks/domains/comments/use-plan-comment-migration.test.tsx components/task/plan-comment-migration-notice.tsx components/task/plan-comment-migration-notice.test.tsx components/task/chat/chat-input-area.test.ts components/task/chat/chat-input-area.test.tsx components/task/passthrough-chat-composer.test.ts hooks/domains/comments/use-run-comment.test.ts e2e/tests/session/task-plan-comments.spec.ts e2e/tests/session/mobile-task-plan-comments.spec.ts)
+(cd apps/web && pnpm exec eslint lib/state/slices/session/types.ts hooks/domains/comments/use-plan-comment-migration.ts hooks/domains/comments/use-plan-comment-migration.test.tsx components/task/plan-comment-migration-notice.tsx components/task/plan-comment-migration-notice.test.tsx components/task/chat/chat-input-area.test.ts components/task/chat/chat-input-area.test.tsx components/task/passthrough-chat-composer.test.ts hooks/domains/comments/use-run-comment.test.ts e2e/helpers/plan-comment-migration.ts e2e/tests/session/task-plan-comments.spec.ts e2e/tests/session/mobile-task-plan-comments.spec.ts)
 (cd apps/web && pnpm run i18n:ratchet)
 (cd apps/web && pnpm e2e:run --project chromium tests/session/task-plan-comments.spec.ts)
 (cd apps/web && pnpm e2e:run --project mobile-chrome tests/session/mobile-task-plan-comments.spec.ts)
@@ -161,4 +161,25 @@ flash. Use deferred hook tests and observation across browser startup.
 
 ## Results
 
-Pending. This is a design package, with no production or permanent test changes.
+Implementation completed on 2026-09-13.
+
+The TDD RED run failed in the two intended places: the notice rendered for the
+idle state, and an empty legacy scan reported `running`. After the production
+change, the focused migration and notice tests passed. The hook now reports
+`checking` while the authoritative empty scan is pending, keeps Send and Run
+blocked until completion, and reserves the visible progress row for actual
+legacy records. Plan replacement, duplicate mounts, retry prerequisites, mixed
+storage, failed rows, and missing-plan recovery remain covered.
+
+Verification results:
+
+- `pnpm install --frozen-lockfile`: dependencies already up to date.
+- The exact Vitest block above: 7 files and 84 tests passed.
+- `pnpm run typecheck`: passed.
+- The targeted ESLint command above: passed with zero warnings.
+- `pnpm run i18n:ratchet`: 0 added and 3 modified files clean; 644 guard entries intact.
+- Desktop managed E2E: 2 tests passed, including the refresh silence regression and the existing Send/Run flow.
+- Mobile managed E2E: 2 tests passed, including Chat and Plan refresh silence and the existing migration flow.
+- `python3 scripts/list-docs.py validate`: 266 decisions and 840 specifications validated.
+- `python3 scripts/lint-spec-files.py --all`: all specification files passed.
+- Prettier check and `git diff --check`: passed.

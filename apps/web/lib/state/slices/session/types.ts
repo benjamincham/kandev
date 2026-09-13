@@ -128,6 +128,7 @@ export type ComparePair = [string | null, string | null];
 
 export type PlanCommentMigrationStatus =
   | "idle"
+  | "checking"
   | "running"
   | "complete"
   | "waiting_for_plan"

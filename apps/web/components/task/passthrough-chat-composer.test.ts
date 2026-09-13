@@ -286,20 +286,23 @@ describe("passthrough chat composer plan context", () => {
 });
 
 describe("passthrough chat composer cleanup", () => {
-  it("rejects delivery while legacy plan comments are not migrated", () => {
-    expect(() =>
-      assertPlanCommentMigrationReady(
-        panelState({
-          planCommentMigration: {
-            status: "failed",
-            isReady: false,
-            isBlocking: true,
-            retry: vi.fn(),
-          },
-        }),
-      ),
-    ).toThrow("Saved plan comments are still being restored. Retry before sending.");
-  });
+  it.each(["failed", "checking"] as const)(
+    "rejects delivery while plan comments are %s",
+    (status) => {
+      expect(() =>
+        assertPlanCommentMigrationReady(
+          panelState({
+            planCommentMigration: {
+              status,
+              isReady: false,
+              isBlocking: true,
+              retry: vi.fn(),
+            },
+          }),
+        ),
+      ).toThrow("Saved plan comments are still being restored. Retry before sending.");
+    },
+  );
 
   it("clears session context but leaves task plan comments to the backend snapshot", () => {
     const state = panelState({

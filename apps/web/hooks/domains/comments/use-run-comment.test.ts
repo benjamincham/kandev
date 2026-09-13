@@ -488,16 +488,17 @@ describe("useRunComment — plan routing", () => {
   });
 
   it("rejects Run until legacy plan comments finish migrating", async () => {
-    const state = makeStoreState("WAITING_FOR_INPUT");
-    state.taskPlans.commentsMigrationStatusByTaskId["task-1"] = "failed";
-    mockStoreState = state;
-    const { result } = renderCommentHook();
+    for (const status of ["failed", "checking"] as const) {
+      const state = makeStoreState("WAITING_FOR_INPUT");
+      state.taskPlans.commentsMigrationStatusByTaskId["task-1"] = status;
+      mockStoreState = state;
+      const { result } = renderCommentHook();
 
-    await expect(result.current.runComment(makePlanComment())).rejects.toMatchObject({
-      code: "plan-comment-migration-pending",
-    });
-    expect(mockSendMessageRequest).not.toHaveBeenCalled();
-    expect(mockQueueMessage).not.toHaveBeenCalled();
+      await expect(result.current.runComment(makePlanComment())).rejects.toMatchObject({
+        code: "plan-comment-migration-pending",
+      });
+      expect(mockSendMessageRequest.mock.calls.length + mockQueueMessage.mock.calls.length).toBe(0);
+    }
   });
 
   it("queues a busy primary as a distinct idempotent entry instead of appending", async () => {

@@ -112,6 +112,18 @@ function useHarness() {
   return { store, migration };
 }
 
+function useDoubleHarness() {
+  return { first: useHarness(), second: useHarness() };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 // eslint-disable-next-line max-lines-per-function -- Migration recovery cases share browser-storage and store fixtures.
 describe("usePlanCommentMigration", () => {
   beforeEach(() => {
@@ -125,6 +137,107 @@ describe("usePlanCommentMigration", () => {
       bySession: {},
       pendingForChat: [],
       editingCommentId: null,
+    });
+  });
+
+  it("checks an empty legacy scan without claiming restoration", async () => {
+    const response = deferred<TaskPlanCommentSnapshot>();
+    api.getTaskPlanComments.mockReturnValue(response.promise);
+
+    const { result } = renderHook(useHarness, { wrapper });
+    act(() => result.current.store.getState().setTaskPlan(TASK_ID, taskPlan));
+
+    await waitFor(() => expect(api.getTaskPlanComments).toHaveBeenCalledWith(TASK_ID));
+    expect(result.current.migration.status).toBe("checking");
+    expect(result.current.migration.isReady).toBe(false);
+    expect(result.current.migration.isBlocking).toBe(true);
+
+    await act(async () => {
+      response.resolve(snapshot([]));
+      await response.promise;
+    });
+    await waitFor(() => expect(result.current.migration.status).toBe("complete"));
+  });
+
+  it("keeps retry prerequisite checks silent until the next scan is known", async () => {
+    sessionsHook.isLoaded = false;
+    sessionsHook.error = "offline";
+    const { result } = renderHook(useHarness, { wrapper });
+    act(() => result.current.store.getState().setTaskPlan(TASK_ID, taskPlan));
+    await waitFor(() => expect(result.current.migration.status).toBe("failed"));
+
+    sessionsHook.isLoaded = true;
+    sessionsHook.error = null;
+    const reload = deferred<void>();
+    sessionsHook.loadSessions.mockReturnValue(reload.promise);
+    api.getTaskPlanComments.mockResolvedValue(snapshot([]));
+    let retryPromise!: Promise<void>;
+    act(() => {
+      retryPromise = result.current.migration.retry();
+    });
+
+    await waitFor(() => expect(result.current.migration.status).toBe("checking"));
+    expect(api.getTaskPlanComments).not.toHaveBeenCalled();
+
+    await act(async () => {
+      reload.resolve();
+      await retryPromise;
+    });
+    await waitFor(() => expect(result.current.migration.status).toBe("complete"));
+  });
+
+  it("deduplicates an empty scan across mounted migration consumers", async () => {
+    const response = deferred<TaskPlanCommentSnapshot>();
+    api.getTaskPlanComments.mockReturnValue(response.promise);
+    const { result } = renderHook(useDoubleHarness, { wrapper });
+    act(() => result.current.first.store.getState().setTaskPlan(TASK_ID, taskPlan));
+
+    await waitFor(() => expect(api.getTaskPlanComments).toHaveBeenCalledWith(TASK_ID));
+    expect(api.getTaskPlanComments).toHaveBeenCalledTimes(1);
+    expect(result.current.first.migration.status).toBe("checking");
+    expect(result.current.second.migration.status).toBe("checking");
+
+    await act(async () => {
+      response.resolve(snapshot([]));
+      await response.promise;
+    });
+    await waitFor(() => {
+      expect(result.current.first.migration.status).toBe("complete");
+      expect(result.current.second.migration.status).toBe("complete");
+    });
+  });
+
+  it("ignores an empty scan settlement after the current plan is replaced", async () => {
+    const replacementPlan = { ...taskPlan, id: "plan-2" };
+    const firstResponse = deferred<TaskPlanCommentSnapshot>();
+    const secondResponse = deferred<TaskPlanCommentSnapshot>();
+    api.getTaskPlanComments
+      .mockReturnValueOnce(firstResponse.promise)
+      .mockReturnValueOnce(secondResponse.promise);
+
+    const { result } = renderHook(useHarness, { wrapper });
+    act(() => result.current.store.getState().setTaskPlan(TASK_ID, taskPlan));
+    await waitFor(() => expect(api.getTaskPlanComments).toHaveBeenCalledTimes(1));
+
+    act(() => result.current.store.getState().setTaskPlan(TASK_ID, replacementPlan));
+    await waitFor(() => expect(api.getTaskPlanComments).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      firstResponse.resolve(snapshot([]));
+      await firstResponse.promise;
+    });
+    expect(result.current.migration.status).toBe("checking");
+
+    await act(async () => {
+      secondResponse.resolve({ task_id: TASK_ID, plan_id: "plan-2", revision: 0, comments: [] });
+      await secondResponse.promise;
+    });
+    await waitFor(() => expect(result.current.migration.status).toBe("complete"));
+    expect(result.current.store.getState().taskPlans.commentsByTaskId[TASK_ID]).toEqual({
+      task_id: TASK_ID,
+      plan_id: "plan-2",
+      revision: 0,
+      comments: [],
     });
   });
 

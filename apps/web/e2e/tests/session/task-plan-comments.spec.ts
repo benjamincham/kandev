@@ -1,6 +1,11 @@
 import type { Page } from "@playwright/test";
 import { test, expect } from "../../fixtures/test-base";
 import { planScript } from "../../helpers/seed-session-messages";
+import {
+  migrationNoticeWasVisible,
+  NOTICE_SELECTOR,
+  watchPlanCommentMigrationNotice,
+} from "../../helpers/plan-comment-migration";
 import { waitForStableActiveSession } from "../../helpers/session-store";
 import type { ApiClient } from "../../helpers/api-client";
 import type { SeedData } from "../../fixtures/test-base";
@@ -65,6 +70,43 @@ async function openPlanCommentComposer(page: Page, session: SessionPage) {
 }
 
 test.describe("task-owned plan comments", () => {
+  // @covers AC-TASKS-PLAN-COMMENTS-004.5
+  // @covers AC-TASKS-PLAN-COMMENTS-004.6
+  // @covers AC-TASKS-PLAN-COMMENTS-004.7
+  test("stays silent across desktop refresh when no legacy comments exist", async ({
+    testPage,
+    apiClient,
+    seedData,
+  }) => {
+    test.setTimeout(150_000);
+    const markerKey = await watchPlanCommentMigrationNotice(testPage);
+    const task = await apiClient.createTaskWithAgent(
+      seedData.workspaceId,
+      "Quiet plan comment restoration",
+      seedData.agentProfileId,
+      {
+        description: planScript(PLAN_CONTENT),
+        workflow_id: seedData.workflowId,
+        workflow_step_id: seedData.startStepId,
+        repository_ids: [seedData.repositoryId],
+      },
+    );
+
+    await testPage.goto(`/t/${task.id}`);
+    const session = new SessionPage(testPage);
+    await session.waitForLoad();
+    await expect.poll(() => apiClient.getTaskPlan(task.id), { timeout: 30_000 }).not.toBeNull();
+    await session.waitForChatIdle({ timeout: 45_000 });
+    await expect(testPage.locator(`${NOTICE_SELECTOR}:visible`)).toHaveCount(0);
+    expect(await migrationNoticeWasVisible(testPage, markerKey)).toBe(false);
+
+    await testPage.reload();
+    await session.waitForLoad();
+    await session.waitForChatIdle({ timeout: 45_000 });
+    await expect(testPage.locator(`${NOTICE_SELECTOR}:visible`)).toHaveCount(0);
+    expect(await migrationNoticeWasVisible(testPage, markerKey)).toBe(false);
+  });
+
   // @covers AC-TASKS-PLAN-COMMENTS-001.2
   // @covers AC-TASKS-PLAN-COMMENTS-002.2
   // @covers AC-TASKS-PLAN-COMMENTS-002.5

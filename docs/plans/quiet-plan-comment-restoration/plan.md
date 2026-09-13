@@ -1,6 +1,6 @@
 ---
 created: 2026-09-13
-status: draft
+status: complete
 requirements:
   - REQ-TASKS-PLAN-COMMENTS-004
 system_design:
@@ -173,20 +173,21 @@ Unit/component tests own the deterministic pending-state RED evidence.
 
 ## Work orders
 
-- [ ] [Task 01: Correct migration notice states](task-01-correct-migration-notice-states.md)
+- [x] [Task 01: Correct migration notice states](task-01-correct-migration-notice-states.md)
 
 ## Verification results
 
-Implementation checks are pending. Exact commands are in Task 01.
-Design-package checks passed on 2026-09-13:
+Implementation and design checks passed on 2026-09-13:
 
+- The exact Task 01 Vitest block: 7 files and 84 tests passed.
+- `pnpm run typecheck`: passed.
+- Targeted ESLint for all changed frontend, test, helper, and E2E files: passed with zero warnings.
+- `pnpm run i18n:ratchet`: 0 added and 3 modified files clean; 644 guard entries intact.
+- Desktop managed E2E: 2 tests passed for the Chromium task plan-comment suite.
+- Mobile managed E2E: 2 tests passed for the mobile task plan-comment suite.
 - `python3 scripts/list-docs.py validate`: 266 decisions and 840 specifications.
-- `python3 scripts/lint-spec-files.test.py`: 36 tests passed.
 - `python3 scripts/lint-spec-files.py --all`: all specification files passed.
-- `git diff --check`: passed.
-
-Product tests and rendered desktop/phone checks have not run because this turn
-creates the package only. Task 01 retains their pending verification status.
+- Prettier check and `git diff --check`: passed.
 
 ## Risks
 

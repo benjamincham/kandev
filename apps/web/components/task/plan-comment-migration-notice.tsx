@@ -12,7 +12,7 @@ type PlanCommentMigrationNoticeProps = {
 
 export function PlanCommentMigrationNotice({ status, retry }: PlanCommentMigrationNoticeProps) {
   const { t } = useTranslation("task");
-  if (status === "complete") return null;
+  if (status === "idle" || status === "checking" || status === "complete") return null;
 
   const isFailed = status === "failed";
   const isWaitingForPlan = status === "waiting_for_plan";

@@ -1,6 +1,11 @@
 // Filename starts with "mobile-" so this runs under the mobile-chrome project.
 import { test, expect } from "../../fixtures/test-base";
 import { assertNoDocumentHorizontalOverflow } from "../../helpers/layout-assertions";
+import {
+  migrationNoticeWasVisible,
+  NOTICE_SELECTOR,
+  watchPlanCommentMigrationNotice,
+} from "../../helpers/plan-comment-migration";
 import { planScript } from "../../helpers/seed-session-messages";
 import { SessionPage } from "../../pages/session-page";
 
@@ -10,6 +15,54 @@ const LEGACY_PRIMARY_ID = "11111111-1111-4111-8111-111111111111";
 const LEGACY_SECONDARY_ID = "22222222-2222-4222-8222-222222222222";
 
 test.describe("mobile: task-owned plan comments", () => {
+  // @covers AC-TASKS-PLAN-COMMENTS-004.5
+  // @covers AC-TASKS-PLAN-COMMENTS-004.6
+  // @covers AC-TASKS-PLAN-COMMENTS-004.7
+  test("stays silent through mobile Chat and Plan refresh when no legacy comments exist", async ({
+    testPage,
+    apiClient,
+    seedData,
+  }) => {
+    test.setTimeout(150_000);
+    const markerKey = await watchPlanCommentMigrationNotice(testPage);
+    const task = await apiClient.createTaskWithAgent(
+      seedData.workspaceId,
+      "Quiet mobile plan comment restoration",
+      seedData.agentProfileId,
+      {
+        description: planScript(PLAN_CONTENT),
+        workflow_id: seedData.workflowId,
+        workflow_step_id: seedData.startStepId,
+        repository_ids: [seedData.repositoryId],
+      },
+    );
+
+    await testPage.goto(`/t/${task.id}`);
+    const session = new SessionPage(testPage);
+    await session.waitForLoad();
+    await expect.poll(() => apiClient.getTaskPlan(task.id), { timeout: 30_000 }).not.toBeNull();
+    await session.waitForChatIdle({ timeout: 45_000 });
+    await expect(testPage.locator(`${NOTICE_SELECTOR}:visible`)).toHaveCount(0);
+    expect(await migrationNoticeWasVisible(testPage, markerKey)).toBe(false);
+
+    const planNavigation = testPage
+      .getByRole("navigation")
+      .getByRole("button", { name: "Plan", exact: true });
+    await expect(planNavigation).toBeVisible();
+    await planNavigation.tap();
+    await expect(session.planPanel.locator(".ProseMirror:visible")).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(testPage.locator(`${NOTICE_SELECTOR}:visible`)).toHaveCount(0);
+    await assertNoDocumentHorizontalOverflow(testPage, "mobile quiet plan comment restoration");
+
+    await testPage.reload();
+    await session.waitForLoad();
+    await session.waitForChatIdle({ timeout: 45_000 });
+    await expect(testPage.locator(`${NOTICE_SELECTOR}:visible`)).toHaveCount(0);
+    expect(await migrationNoticeWasVisible(testPage, markerKey)).toBe(false);
+  });
+
   // @covers AC-TASKS-PLAN-COMMENTS-001.7
   // @covers AC-TASKS-PLAN-COMMENTS-003.2
   // @covers AC-TASKS-PLAN-COMMENTS-004.1

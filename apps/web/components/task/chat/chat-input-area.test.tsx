@@ -351,31 +351,36 @@ describe("useSubmitHandler plan mode", () => {
 });
 
 describe("useSubmitHandler task plan comments", () => {
-  it("blocks delivery while legacy comments still need migration", async () => {
-    const { result } = renderHook(() =>
-      useSubmitHandler(
-        panelState({
-          planCommentMigration: {
-            status: "failed",
-            isReady: false,
-            isBlocking: true,
-            retry: vi.fn(),
-          },
-        }),
-      ),
-    );
+  it.each(["failed", "checking"] as const)(
+    "blocks delivery while migration is not ready (%s)",
+    async (status) => {
+      const { result } = renderHook(() =>
+        useSubmitHandler(
+          panelState({
+            planCommentMigration: {
+              status,
+              isReady: false,
+              isBlocking: true,
+              retry: vi.fn(),
+            },
+          }),
+        ),
+      );
 
-    await act(async () => {
-      await expect(result.current.handleSubmit({ message: "Keep my draft" })).resolves.toBe(false);
-    });
+      await act(async () => {
+        await expect(result.current.handleSubmit({ message: "Keep my draft" })).resolves.toBe(
+          false,
+        );
+      });
 
-    expect(handleSendMessageMock).not.toHaveBeenCalled();
-    expect(toastMock).toHaveBeenCalledWith({
-      title: "Message not sent",
-      description: "Saved plan comments are still being restored. Retry before sending.",
-      variant: "error",
-    });
-  });
+      expect(handleSendMessageMock).not.toHaveBeenCalled();
+      expect(toastMock).toHaveBeenCalledWith({
+        title: "Message not sent",
+        description: "Saved plan comments are still being restored. Retry before sending.",
+        variant: "error",
+      });
+    },
+  );
 
   it("submits displayed IDs and versions without clearing the shared snapshot locally", async () => {
     const clearSessionPlanComments = vi.fn();
