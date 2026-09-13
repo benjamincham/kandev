@@ -242,6 +242,10 @@ function buildSubtaskFormState({
     setExecutorId: NOOP,
     executorProfileId,
     setExecutorProfileId,
+    // The New Subtask dialog is create-only, so it has no stored executor
+    // profile seed to apply.
+    setExecutorProfileIdFromSeed: NOOP,
+    seededExecutorProfileId: null,
     autopilot,
     setAutopilot,
     discoveredRepositories,

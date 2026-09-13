@@ -27,6 +27,13 @@ function visibleEditor(scope: Locator | Page): Locator {
   return scope.locator(".tiptap.ProseMirror:visible").first();
 }
 
+async function clearEditor(editor: Locator): Promise<void> {
+  await editor.click();
+  await editor.press("ControlOrMeta+A");
+  await editor.press("Backspace");
+  await expect(editor.getByTestId("entity-reference-chip")).toHaveCount(0);
+}
+
 async function expectPersistedReference(
   apiClient: ApiClient,
   sessionId: string,
@@ -153,7 +160,7 @@ test.describe("Bitbucket plugin contract", () => {
     await session.clickSessionChatTab();
     await session.waitForChatIdle({ timeout: 30_000 });
     const editor = visibleEditor(session.activeChat());
-    await editor.fill("");
+    await clearEditor(editor);
     await editor.pressSequentially("#revoked");
     await testPage.getByRole("option", { name: /Pull request #99/ }).click();
     await expect(session.activeChat().getByTestId("entity-reference-chip")).toBeVisible();
@@ -165,7 +172,7 @@ test.describe("Bitbucket plugin contract", () => {
 
     // Search returns a manifest-owned source; a selected good reference is
     // reauthorized by the live plugin during submission before metadata persists.
-    await editor.fill("");
+    await clearEditor(editor);
     await editor.pressSequentially("#Provider-neutral");
     await testPage.getByRole("option", { name: /Pull request #42/ }).click();
     await expect(session.activeChat().getByTestId("entity-reference-chip")).toBeVisible();

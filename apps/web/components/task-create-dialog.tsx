@@ -106,6 +106,7 @@ function CreateModeBody(props: DialogFormBodyProps) {
       )}
       <DialogPromptSection
         isSessionMode={false}
+        promptReferencesEnabled={isCreateMode}
         isTaskStarted={isTaskStarted}
         initialDescription={props.initialDescription}
         fs={fs}
@@ -146,6 +147,8 @@ function CreateModeAgentSelectors(props: DialogFormBodyProps) {
       selectedAgentProfileName={props.selectedAgentProfileName}
       effectiveWorkflowName={props.effectiveWorkflowName}
       executorProfileName={props.executorProfileName}
+      runnerEditable={props.runnerEditable}
+      runnerIneligibleReason={props.runnerIneligibleReason}
     />
   );
 }
@@ -185,7 +188,7 @@ function SessionModeBody(props: DialogFormBodyProps) {
 function DialogFormBody(props: DialogFormBodyProps) {
   const { isSessionMode, isCreateMode, isTaskStarted, workflows, snapshots } = props;
   return (
-    <div className="flex-1 space-y-4 overflow-y-auto pr-1">
+    <div className="flex-1 space-y-4 overflow-y-auto pr-1" data-testid="task-create-form-body">
       {isSessionMode ? <SessionModeBody {...props} /> : <CreateModeBody {...props} />}
       <WorkflowSection
         isCreateMode={isCreateMode}
@@ -307,7 +310,10 @@ export function TaskCreateDialog(props: TaskCreateDialogProps) {
               {...buildDialogFormBodyProps(setup, props)}
               onComposerSubmit={handleComposerSubmit}
             />
-            <DialogFooter className="border-t border-border pt-3 flex-col gap-3 sm:flex-row sm:gap-2">
+            <DialogFooter
+              className="border-t border-border pt-3 flex-col gap-3 sm:flex-row sm:gap-2"
+              data-testid="task-create-dialog-footer"
+            >
               <TaskCreateDialogFooter
                 {...buildDialogFooterProps(setup, props, pendingAttachmentReason)}
               />
