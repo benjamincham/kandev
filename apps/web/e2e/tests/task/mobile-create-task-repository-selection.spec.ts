@@ -14,14 +14,14 @@ test.describe("Create task workspace repository picker on mobile", () => {
 
     const dialog = testPage.getByTestId("create-task-dialog");
     await expect(dialog).toBeVisible();
-    const repositoryChips = testPage.getByTestId("repo-chip-trigger");
     const manager = testPage.getByTestId("mobile-repository-manager");
     const management = testPage.getByTestId("mobile-repository-management");
+    const repositoryChips = management.getByTestId("repo-chip-trigger");
 
     await manager.tap();
     await expect(management).toBeVisible();
     await expect(repositoryChips.first()).toContainText("E2E Repo");
-    await testPage.getByTestId("mobile-repository-add").tap();
+    await management.getByTestId("mobile-repository-add").tap();
     const selectedElsewhere = testPage
       .getByTestId("task-repository-local-option")
       .filter({ hasText: "E2E Repo" });

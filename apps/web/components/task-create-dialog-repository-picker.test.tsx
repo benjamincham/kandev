@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@kandev/ui/tooltip";
 import type { UseRemoteRepositoriesResult } from "@/hooks/domains/integrations/use-remote-repositories";
@@ -156,6 +156,50 @@ describe("RepositoryPicker", () => {
     renderPicker("workspace-1", "gitlab");
 
     expect(screen.getByRole("tab", { name: "GitLab" }).getAttribute("aria-selected")).toBe("true");
+  });
+});
+
+describe("RepositoryPicker provider availability", () => {
+  it("falls back to Local and offers retry when the selected provider becomes unavailable", async () => {
+    const value = accessible();
+    const onRefresh = vi.fn();
+    const view = render(
+      <TooltipProvider>
+        <RepositoryPicker
+          repositories={[workspaceRepository]}
+          discoveredRepositories={[]}
+          accessible={value}
+          onSelectLocal={vi.fn()}
+          onSelectRemote={vi.fn()}
+          onPasteRemote={vi.fn()}
+          onRefresh={onRefresh}
+        />
+      </TooltipProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "GitHub" }));
+    value.availableProviders = [];
+    value.providerCatalog = [{ provider: "github", readiness: "unavailable" }];
+    view.rerender(
+      <TooltipProvider>
+        <RepositoryPicker
+          repositories={[workspaceRepository]}
+          discoveredRepositories={[]}
+          accessible={value}
+          onSelectLocal={vi.fn()}
+          onSelectRemote={vi.fn()}
+          onPasteRemote={vi.fn()}
+          onRefresh={onRefresh}
+        />
+      </TooltipProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "Local" }).getAttribute("aria-selected")).toBe("true");
+      expect(screen.getByTestId("task-repository-source-unavailable")).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(onRefresh).toHaveBeenCalledOnce();
   });
 });
 

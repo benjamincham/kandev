@@ -556,6 +556,10 @@ export function useGitHubUrlErrorEffect(fs: DialogFormState, open: boolean) {
       : fs.remoteRepos[0]?.url) ?? "";
   useEffect(() => {
     if (!open) return;
+    if (hasCanonicalSelections) {
+      setGitHubUrlError(null);
+      return;
+    }
     // When the user leaves Remote mode (toggle off / switch to workspace
     // mode / dialog reopens in non-Remote mode) we must clear any stale
     // error left over from a previous Remote-mode pass. The early return

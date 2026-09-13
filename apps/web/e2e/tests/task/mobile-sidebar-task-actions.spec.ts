@@ -775,8 +775,9 @@ test.describe("Mobile sidebar task actions", () => {
     await dialog.getByTestId("subtask-workspace-mode-new").tap();
     await expect(parentBranchBadge).toHaveCount(0);
     await dialog.getByTestId("mobile-repository-manager").tap();
-    await expect(testPage.getByTestId("repo-chip-trigger")).toBeVisible();
-    await expect(testPage.getByTestId("branch-chip-trigger")).toBeVisible();
+    const management = testPage.getByTestId("mobile-repository-management");
+    await expect(management.getByTestId("repo-chip-trigger")).toBeVisible();
+    await expect(management.getByTestId("branch-chip-trigger")).toBeVisible();
     await testPage.getByTestId("mobile-repository-done").tap();
     await prCapture.screenshot("mobile-subtask-isolated-workspace", {
       caption: "Mobile New Subtask dialog with isolated workspace controls",
@@ -857,7 +858,8 @@ test.describe("Mobile sidebar task actions", () => {
     const dialog = testPage.getByTestId("new-subtask-dialog");
     await expect(dialog).toBeVisible();
     await dialog.getByTestId("mobile-repository-manager").tap();
-    await expect(testPage.getByTestId("repo-chip-trigger")).toContainText("Mobile parent repo");
+    const management = testPage.getByTestId("mobile-repository-management");
+    await expect(management.getByTestId("repo-chip-trigger")).toContainText("Mobile parent repo");
     await expect(testPage.getByTestId("subtask-title-input")).toHaveValue(
       /Mobile non-active parent \/ Subtask 1/,
     );
@@ -984,10 +986,11 @@ test.describe("Mobile sidebar task actions", () => {
         await expect(executorSelector).toContainText(localProfile.name, { timeout: 1_000 });
       }).toPass({ timeout: 10_000 });
       await dialog.getByTestId("mobile-repository-manager").tap();
-      const branchTrigger = testPage.getByTestId("branch-chip-trigger").first();
+      const management = testPage.getByTestId("mobile-repository-management");
+      const branchTrigger = management.getByTestId("branch-chip-trigger").first();
       await branchTrigger.tap();
       await testPage.getByRole("option", { name: new RegExp(policy.name) }).tap({ force: true });
-      await expect(testPage.getByTestId("fresh-branch-toggle")).toHaveAttribute(
+      await expect(management.getByTestId("fresh-branch-toggle")).toHaveAttribute(
         "aria-pressed",
         "true",
       );

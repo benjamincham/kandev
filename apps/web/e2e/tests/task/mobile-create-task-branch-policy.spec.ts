@@ -46,7 +46,8 @@ test.describe("Task branch policy selection on mobile", () => {
         await expect(executorSelector).toContainText(localProfile.name, { timeout: 1_000 });
       }).toPass({ timeout: 10_000 });
       await dialog.getByTestId("mobile-repository-manager").tap();
-      const branchTrigger = testPage.getByTestId("branch-chip-trigger").first();
+      const management = testPage.getByTestId("mobile-repository-management");
+      const branchTrigger = management.getByTestId("branch-chip-trigger").first();
       await expect(branchTrigger).toBeVisible();
       await branchTrigger.tap();
       const policyOption = () => testPage.getByRole("option", { name: new RegExp(policy.name) });
@@ -59,7 +60,7 @@ test.describe("Task branch policy selection on mobile", () => {
         await policyOption().evaluate((element) => (element as HTMLElement).click());
         await expect(branchTrigger).toContainText(policy.name, { timeout: 1_000 });
       }).toPass({ timeout: 10_000 });
-      await expect(testPage.getByTestId("fresh-branch-toggle")).toHaveAttribute(
+      await expect(management.getByTestId("fresh-branch-toggle")).toHaveAttribute(
         "aria-pressed",
         "true",
       );
@@ -133,18 +134,19 @@ test.describe("Task branch policy selection on mobile", () => {
       await dialog.getByTestId("executor-profile-selector").tap();
       await testPage.getByRole("option", { name: new RegExp(localProfile.name) }).tap();
       await dialog.getByTestId("mobile-repository-manager").tap();
-      await testPage.getByTestId("mobile-repository-add").tap();
+      const management = testPage.getByTestId("mobile-repository-management");
+      await management.getByTestId("mobile-repository-add").tap();
 
       const secondRepositoryOption = testPage
         .getByTestId("task-repository-local-option")
         .filter({ hasText: secondRepositoryName });
       await expect(secondRepositoryOption).toBeVisible();
       await secondRepositoryOption.tap();
-      const repositoryChips = testPage.getByTestId("repo-chip-trigger");
+      const repositoryChips = management.getByTestId("repo-chip-trigger");
       await expect(repositoryChips).toHaveCount(2);
       await expect(repositoryChips.nth(1)).toContainText(secondRepositoryName);
 
-      const branchChips = testPage.getByTestId("branch-chip-trigger");
+      const branchChips = management.getByTestId("branch-chip-trigger");
       await expect(branchChips).toHaveCount(2);
       await branchChips.nth(0).tap();
       const policyOption = testPage.getByRole("option", { name: new RegExp(policy.name) });

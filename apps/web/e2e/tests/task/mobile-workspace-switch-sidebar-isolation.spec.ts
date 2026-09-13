@@ -51,7 +51,10 @@ test("mobile creates in the selected workspace after leaving an open task", asyn
   const dialog = testPage.getByTestId("create-task-dialog");
   await expect(dialog).toBeVisible();
   await dialog.getByTestId("mobile-repository-manager").tap();
-  await testPage.getByTestId("remove-repo-chip").first().tap();
+  const management = testPage.getByTestId("mobile-repository-management");
+  const removeRepository = management.getByTestId("remove-repo-chip");
+  await expect(removeRepository).toHaveCount(1);
+  await removeRepository.tap();
   await testPage.getByTestId("mobile-repository-done").tap();
   await dialog.getByTestId("task-title-input").fill(createdTitle);
   await dialog.getByTestId("task-description-input").fill("Created after changing workspace");

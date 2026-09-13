@@ -22,7 +22,8 @@ test.describe("Mobile repository discovery consent", () => {
     await expect(dialog.getByTestId("discovery-root-controls")).toHaveCount(0);
 
     await dialog.getByTestId("mobile-repository-manager").tap();
-    const repositoryChip = testPage.getByTestId("repo-chip-trigger").first();
+    const management = testPage.getByTestId("mobile-repository-management");
+    const repositoryChip = management.getByTestId("repo-chip-trigger").first();
     await expect(repositoryChip).toBeVisible();
     await repositoryChip.tap();
     const controls = testPage.getByTestId("discovery-root-controls");

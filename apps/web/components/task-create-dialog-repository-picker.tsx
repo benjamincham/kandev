@@ -24,6 +24,11 @@ import { parseGitHubAnyUrl } from "@/hooks/domains/github/use-pr-info-by-url";
 import { normalizeRepoPath } from "@/components/task-create-dialog-repo-chip-utils";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
+import {
+  RepositorySourceUnavailableNotice,
+  useRepositoryPickerSource,
+  type RepositorySource,
+} from "@/components/task-create-dialog-repository-picker-source";
 
 export type LocalRepositoryChoice = {
   repositoryId?: string;
@@ -45,8 +50,6 @@ export type RepositoryPickerProps = {
   onCreateRepository?: () => void;
 };
 
-type RepositorySource = "local" | RemoteRepositoryProvider;
-
 /**
  * Source picker shared by desktop popovers and the phone repository drawer.
  * The tabs are deliberately outside the search input so source selection stays
@@ -65,21 +68,15 @@ export function RepositoryPicker({
   onCreateRepository,
 }: RepositoryPickerProps) {
   const mobile = useTouchDrawer();
-  const [source, setSource] = useState<RepositorySource>("local");
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const providerIds = useReadyProviderIds(accessible);
-  const activeSource = source !== "local" && !providerIds.includes(source) ? "local" : source;
+  const { activeSource, unavailableProvider, selectSource } = useRepositoryPickerSource(
+    providerIds,
+    scopeKey,
+  );
   const matchesURL = accessible.matchesURL ?? looksLikeSupportedRemoteURL;
   const { search } = accessible;
-  const restoredScopeRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!scopeKey || restoredScopeRef.current === scopeKey || providerIds.length === 0) return;
-    restoredScopeRef.current = scopeKey;
-    const stored = readStoredRepositorySource(scopeKey);
-    if (stored && (stored === "local" || providerIds.includes(stored))) setSource(stored);
-  }, [providerIds, scopeKey]);
 
   useEffect(() => {
     search(query);
@@ -111,13 +108,9 @@ export function RepositoryPicker({
     setQuery("");
     return true;
   };
-  const selectSource = (next: RepositorySource) => {
-    setSource(next);
-    if (scopeKey) sessionStorage.setItem(repositorySourceStorageKey(scopeKey), next);
-  };
-
   return (
     <div className="flex min-w-0 flex-col" data-testid="task-repository-picker">
+      {unavailableProvider ? <RepositorySourceUnavailableNotice onRefresh={onRefresh} /> : null}
       <RepositorySourceTabs
         activeSource={activeSource}
         providerIds={providerIds}
@@ -425,16 +418,6 @@ function useReadyProviderIds(accessible: UseRemoteRepositoriesResult): RemoteRep
     }
     return accessible.availableProviders;
   }, [accessible.availableProviders, accessible.providerCatalog]);
-}
-
-function repositorySourceStorageKey(scopeKey: string): string {
-  return `kandev.task-repository-picker-source:${scopeKey}`;
-}
-
-function readStoredRepositorySource(scopeKey: string): RepositorySource | null {
-  if (typeof window === "undefined") return null;
-  const stored = window.sessionStorage.getItem(repositorySourceStorageKey(scopeKey));
-  return stored ? (stored as RepositorySource) : null;
 }
 
 function SourceTab({
