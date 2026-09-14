@@ -534,6 +534,7 @@ func startServices( //nolint:cyclop
 	var agentctlBinaryPath string
 	var recoveryDeadlineStart time.Time
 	var inheritedRecordScope lifecycle.InheritedRecordScope
+	var peerCapabilities []string
 	if agentctlResult != nil {
 		addCleanup(agentctlResult.cleanup)
 		defer func() {
@@ -551,10 +552,11 @@ func startServices( //nolint:cyclop
 		agentctlBinaryPath = agentctlResult.binaryPath
 		recoveryDeadlineStart = agentctlResult.recoveryDeadlineStart
 		inheritedRecordScope = agentctlResult.inheritedRecordScope
+		peerCapabilities = append([]string(nil), agentctlResult.peerCapabilities...)
 	}
 
 	return startAgentInfrastructure(ctx, cfg, log, addCleanup, eventBus, agentRuntimeAvailability,
-		dbPool, repos, services, agentSettingsController, agentRegistry, agentctlBinaryPath, recoveryDeadlineStart, inheritedRecordScope,
+		dbPool, repos, services, agentSettingsController, agentRegistry, agentctlBinaryPath, recoveryDeadlineStart, inheritedRecordScope, peerCapabilities,
 		startupRecoveryGuard, runCleanups, cancelWorkers)
 }
 
@@ -577,6 +579,7 @@ func startAgentInfrastructure(
 	agentctlBinaryPath string,
 	recoveryDeadlineStart time.Time,
 	inheritedRecordScope lifecycle.InheritedRecordScope,
+	peerCapabilities []string,
 	startupRecoveryGuard *lifecycle.RecoveryGuard,
 	runCleanups func(),
 	cancelWorkers context.CancelFunc,
@@ -621,6 +624,7 @@ func startAgentInfrastructure(
 		mcpScopeResolver.ScopePrincipal,
 		recoveryDeadlineStart,
 		inheritedRecordScope,
+		peerCapabilities,
 		services.Task,
 		services.Task,
 		repos.Task,

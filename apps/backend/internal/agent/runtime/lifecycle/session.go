@@ -1077,6 +1077,7 @@ func (sm *SessionManager) dispatchInitialPrompt(ctx context.Context, execution *
 				zap.String("effective_hash", continuationPromptHash(effectivePrompt)))
 		}
 		acpAttachments := convertAttachments(attachments)
+		initialSubmissionID := initialPromptDeliverySubmissionID(execution)
 		go func() {
 			promptCtx, cancel := appctx.Detached(ctx, sm.stopCh, 0)
 			defer cancel()
@@ -1087,7 +1088,10 @@ func (sm *SessionManager) dispatchInitialPrompt(ctx context.Context, execution *
 				false,
 				acpAttachments,
 				false,
-				sendPromptCallbacks{onFailure: sm.initialPromptFailure},
+				sendPromptCallbacks{
+					onFailure:            sm.initialPromptFailure,
+					deliverySubmissionID: initialSubmissionID,
+				},
 				false,
 			)
 			if err != nil {
