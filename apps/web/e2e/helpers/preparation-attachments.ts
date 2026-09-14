@@ -35,6 +35,8 @@ export async function assertPreparationAttachments(options: Options) {
   const release = path.join(fixture, "release");
   const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
   const { settings } = await apiClient.getUserSettings();
+  const originalWorkspaceSourcesByWorkspace =
+    settings.task_create_last_used.workspace_sources_by_workspace ?? {};
   let taskId: string | undefined;
   let repositoryId: string | undefined;
   const cleanupErrors: unknown[] = [];
@@ -65,6 +67,16 @@ export async function assertPreparationAttachments(options: Options) {
         agent_profile_id: seedData.agentProfileId,
         executor_profile_id: seedData.worktreeExecutorProfileId,
         workflow_ids_by_workspace: { [seedData.workspaceId]: seedData.workflowId },
+        workspace_sources_by_workspace: {
+          [seedData.workspaceId]: [
+            {
+              kind: "repository",
+              repository_id: repository.id,
+              base_branch: "main",
+              checkout_branch: "main",
+            },
+          ],
+        },
       },
     });
     if (mobile) {
@@ -202,9 +214,10 @@ export async function assertPreparationAttachments(options: Options) {
     });
     await runCleanup(() =>
       apiClient.saveUserSettings({
-        task_create_last_used: settings.task_create_last_used as Parameters<
-          ApiClient["saveUserSettings"]
-        >[0]["task_create_last_used"],
+        task_create_last_used: {
+          ...settings.task_create_last_used,
+          workspace_sources_by_workspace: originalWorkspaceSourcesByWorkspace,
+        },
       }),
     );
     await runCleanup(() => fs.rmSync(fixture, { recursive: true, force: true }));

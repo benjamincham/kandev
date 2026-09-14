@@ -318,8 +318,12 @@ test.describe("Subtask basics", () => {
       let submittedRepositories: Array<Record<string, unknown>> | undefined;
       testPage.on("request", (request) => {
         if (request.method() !== "POST" || !request.url().endsWith("/api/v1/tasks")) return;
-        submittedRepositories = (JSON.parse(request.postData() ?? "{}").repositories ??
-          []) as Array<Record<string, unknown>>;
+        const payload = JSON.parse(request.postData() ?? "{}") as {
+          workspace_sources?: Array<Record<string, unknown> & { kind?: string }>;
+        };
+        submittedRepositories = (payload.workspace_sources ?? []).filter(
+          (source) => source.kind === "repository",
+        );
       });
       await dialog.getByTestId("subtask-title-input").fill(childTitle);
       await dialog.getByTestId("subtask-prompt-input").fill("/e2e:simple-message");
