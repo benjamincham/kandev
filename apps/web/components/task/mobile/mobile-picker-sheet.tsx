@@ -66,28 +66,38 @@ export function MobilePickerSheet({
       <div
         className="flex-1 min-h-0 max-h-[70dvh] overflow-y-auto px-2 pb-[calc(1rem+env(safe-area-inset-bottom))]"
         data-testid={contentTestId}
+        data-vaul-no-drag
       >
         {children}
       </div>
     </>
   );
-
   if (confirmationHost)
     return (
       <MobileConfirmationHost open={open} surface="drawer">
-        {({ contentProps }) => (
-          <Drawer open={open} onOpenChange={onOpenChange}>
-            <DrawerContent
-              {...contentProps}
-              onCloseAutoFocus={onCloseAutoFocus}
-              onPointerDownOutside={onPointerDownOutside}
-              onFocusOutside={onFocusOutside}
-              onEscapeKeyDown={onEscapeKeyDown}
-            >
-              <MobileConfirmationHostBody>{content}</MobileConfirmationHostBody>
-            </DrawerContent>
-          </Drawer>
-        )}
+        {({ contentProps }) => {
+          const hostedEscape = contentProps.onEscapeKeyDown;
+          const handleHostedEscape =
+            hostedEscape && onEscapeKeyDown
+              ? (event: KeyboardEvent) => {
+                  hostedEscape(event);
+                  if (!event.defaultPrevented) onEscapeKeyDown(event);
+                }
+              : (hostedEscape ?? onEscapeKeyDown);
+          return (
+            <Drawer open={open} onOpenChange={onOpenChange}>
+              <DrawerContent
+                {...contentProps}
+                onCloseAutoFocus={onCloseAutoFocus}
+                onPointerDownOutside={onPointerDownOutside}
+                onFocusOutside={onFocusOutside}
+                onEscapeKeyDown={handleHostedEscape}
+              >
+                <MobileConfirmationHostBody>{content}</MobileConfirmationHostBody>
+              </DrawerContent>
+            </Drawer>
+          );
+        }}
       </MobileConfirmationHost>
     );
   return (
