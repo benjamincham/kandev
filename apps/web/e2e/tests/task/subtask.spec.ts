@@ -924,6 +924,8 @@ test.describe("Subtask dialog feature parity", () => {
     const titleInput = testPage.getByTestId("subtask-title-input");
     await expect(titleInput).toBeVisible({ timeout: 5_000 });
 
+    await expect(testPage.getByTestId("remove-repo-chip").first()).toBeVisible();
+    await testPage.getByTestId("remove-repo-chip").first().click();
     await openTaskRepositoryPicker(testPage);
     const urlInput = testPage.getByTestId("task-repository-picker-input");
     await expect(urlInput).toBeVisible({ timeout: 5_000 });

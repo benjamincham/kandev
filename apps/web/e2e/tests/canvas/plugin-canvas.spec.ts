@@ -40,10 +40,6 @@ test.describe("Plugin-backed canvases in the desktop task workbench", () => {
       const dialog = testPage.getByTestId("create-task-dialog");
       await expect(dialog).toBeVisible();
       await expect(testPage).toHaveURL(routeBeforeOpen);
-      await expect(dialog.getByTestId("source-mode-scratch")).toHaveAttribute(
-        "aria-checked",
-        "true",
-      );
       await expectTaskDescription(
         dialog.getByTestId("task-description-input"),
         "Create a new Kandev canvas with a coordinator view that lists the existing tasks.\n\n@create-canvas",

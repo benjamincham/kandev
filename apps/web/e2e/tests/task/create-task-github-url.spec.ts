@@ -13,6 +13,12 @@ useRegularMode();
  * Adds a URL through the shared repository picker and submits it with Enter.
  */
 async function openRemoteAndPasteURL(testPage: Page, url: string): Promise<void> {
+  const removeRepository = testPage.getByTestId("remove-repo-chip").first();
+  if ((await removeRepository.count()) > 0) {
+    await expect(removeRepository).toBeVisible();
+    await removeRepository.click();
+    await expect(testPage.getByTestId("remove-repo-chip")).toHaveCount(0);
+  }
   await openTaskRepositoryPicker(testPage);
   const urlInput = testPage.getByTestId("task-repository-picker-input");
   await expect(urlInput).toBeVisible();

@@ -58,7 +58,7 @@ test.describe("mobile Bitbucket plugin contract", () => {
     expect(await testPage.evaluate(() => document.documentElement.scrollWidth)).toBe(
       await testPage.evaluate(() => document.documentElement.clientWidth),
     );
-    await testPage.getByRole("button", { name: "Cancel" }).tap();
+    await testPage.getByTestId("mobile-repository-done").tap();
 
     const task = await apiClient.createTaskWithAgent(
       seedData.workspaceId,

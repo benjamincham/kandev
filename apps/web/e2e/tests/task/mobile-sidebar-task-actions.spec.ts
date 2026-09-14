@@ -989,7 +989,10 @@ test.describe("Mobile sidebar task actions", () => {
       const management = testPage.getByTestId("mobile-repository-management");
       const branchTrigger = management.getByTestId("branch-chip-trigger").first();
       await branchTrigger.tap();
-      await testPage.getByRole("option", { name: new RegExp(policy.name) }).tap({ force: true });
+      const branchPicker = testPage.getByRole("dialog", { name: "Branch" });
+      await expect(branchPicker).toBeVisible();
+      await branchPicker.getByRole("combobox").fill(policy.name);
+      await branchPicker.getByRole("option", { name: new RegExp(policy.name) }).tap();
       await expect(management.getByTestId("fresh-branch-toggle")).toHaveAttribute(
         "aria-pressed",
         "true",

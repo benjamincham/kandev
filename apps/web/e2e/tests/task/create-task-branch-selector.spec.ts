@@ -161,6 +161,8 @@ test.describe("Branch selector behavior with executor types", () => {
       await expect(dialog).toBeVisible();
 
       // Add a provider URL through the shared repository picker.
+      await expect(dialog.getByTestId("remove-repo-chip").first()).toBeVisible();
+      await dialog.getByTestId("remove-repo-chip").first().click();
       await openTaskRepositoryPicker(testPage);
       const pasteInput = testPage.getByTestId("task-repository-picker-input");
       await pasteInput.fill("https://github.com/branch-test-owner/branch-test-repo");
@@ -505,6 +507,8 @@ test.describe("Fresh-branch flow", () => {
       await testPage.getByTestId("task-title-input").fill("Hide toggle");
       await testPage.getByTestId("task-description-input").fill("github url");
       // Add a provider URL through the shared repository picker.
+      await expect(testPage.getByTestId("remove-repo-chip").first()).toBeVisible();
+      await testPage.getByTestId("remove-repo-chip").first().click();
       await openTaskRepositoryPicker(testPage);
       const pasteInput = testPage.getByTestId("task-repository-picker-input");
       await pasteInput.fill("https://github.com/branch-test-owner/branch-test-repo");
