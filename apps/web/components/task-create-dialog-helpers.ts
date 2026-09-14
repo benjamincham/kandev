@@ -541,18 +541,17 @@ function buildLocalRepositoryPayloadRow(
   isLocalExecutor: boolean,
 ): CreateTaskRepositoryPayload {
   const defaultBranch = resolveRowDefaultBranch(row, opts);
-  const branches = splitLocalExecutorBranches({
-    // Restored local sources can carry both the branch checked out on the
-    // host and the saved integration base. Worktree-backed executors use the
-    // base while direct local execution keeps the checkout branch.
-    rowBranch: isLocalExecutor ? row.branch : row.baseBranch || row.branch,
-    defaultBranch,
-    // Fresh-branch mode uses row.branch as the fork base. A saved set base
-    // is checkout metadata for the ordinary local-executor flow and must
-    // not override the branch the user picked to fork from.
-    baseBranch: opts.freshBranch ? undefined : row.baseBranch,
-    isLocalExecutor,
-  });
+  const branches = opts.freshBranch
+    ? { base_branch: row.branch || undefined, checkout_branch: undefined }
+    : splitLocalExecutorBranches({
+        // Restored local sources can carry both the branch checked out on the
+        // host and the saved integration base. Worktree-backed executors use the
+        // base while direct local execution keeps the checkout branch.
+        rowBranch: isLocalExecutor ? row.branch : row.baseBranch || row.branch,
+        defaultBranch,
+        baseBranch: row.baseBranch,
+        isLocalExecutor,
+      });
   if (row.repositoryId) {
     return {
       repository_id: row.repositoryId,
