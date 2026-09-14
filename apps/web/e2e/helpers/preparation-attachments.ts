@@ -80,9 +80,18 @@ export async function assertPreparationAttachments(options: Options) {
     await expect(dialog).toBeVisible();
     await dialog.getByTestId("task-title-input").fill("Preparation attachment previews");
     await dialog.getByTestId("task-description-input").fill("/e2e:simple-message");
-    await expect(dialog.getByTestId("repo-chip-trigger").first()).toContainText(
-      "Preparation preview repository",
-    );
+    if (mobile) {
+      await dialog.getByTestId("mobile-repository-manager").tap();
+      const management = page.getByTestId("mobile-repository-management");
+      await expect(management.getByTestId("repo-chip-trigger").first()).toContainText(
+        "Preparation preview repository",
+      );
+      await page.getByTestId("mobile-repository-done").tap();
+    } else {
+      await expect(dialog.getByTestId("repo-chip-trigger").first()).toContainText(
+        "Preparation preview repository",
+      );
+    }
     const imageBytes = fs.readFileSync(
       path.join(process.cwd(), "public/web-app-manifest-192x192.png"),
     );
