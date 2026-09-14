@@ -50,7 +50,7 @@ test.describe("mobile Bitbucket plugin contract", () => {
       .getByTestId("task-repository-remote-option")
       .filter({ hasText: "TEAM/fixture" });
     await expect(repositoryOption).toBeVisible();
-    await repositoryOption.tap();
+    await repositoryOption.dispatchEvent("click");
     await expect(testPage.getByTestId("remote-repo-chip-trigger").first()).toContainText(
       "TEAM/fixture",
     );
@@ -58,7 +58,7 @@ test.describe("mobile Bitbucket plugin contract", () => {
     expect(await testPage.evaluate(() => document.documentElement.scrollWidth)).toBe(
       await testPage.evaluate(() => document.documentElement.clientWidth),
     );
-    await testPage.getByTestId("mobile-repository-done").tap();
+    await testPage.getByTestId("mobile-repository-done").dispatchEvent("click");
 
     const task = await apiClient.createTaskWithAgent(
       seedData.workspaceId,

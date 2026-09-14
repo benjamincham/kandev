@@ -131,6 +131,7 @@ test.describe("Task-create executor safety defaults", () => {
       await expect(executorSelector).toContainText(worktreeProfile.name);
 
       await testPage.getByTestId("add-repository").click();
+      await testPage.getByTestId("workspace-source-menu-repository").click();
       await expect(testPage.getByTestId("task-repository-picker")).toBeVisible();
       await testPage.keyboard.press("Escape");
       await expect(executorSelector).toContainText(worktreeProfile.name);

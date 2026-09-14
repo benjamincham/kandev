@@ -36,22 +36,26 @@ type httpWorkspaceSourcesRequest struct {
 }
 
 type workspaceSourceJSON struct {
-	Kind           string `json:"kind"`
-	RepositoryID   string `json:"repository_id"`
-	LocalPath      string `json:"local_path"`
-	GitHubURL      string `json:"github_url"`
-	RemoteURL      string `json:"remote_url"`
-	Provider       string `json:"provider"`
-	ProviderHost   string `json:"provider_host"`
-	ProviderScope  string `json:"provider_scope"`
-	ProviderRepoID string `json:"provider_repo_id"`
-	ProviderOwner  string `json:"provider_owner"`
-	ProviderName   string `json:"provider_name"`
-	BaseBranch     string `json:"base_branch"`
-	CheckoutBranch string `json:"checkout_branch"`
-	BranchPolicyID string `json:"branch_policy_id"`
-	PRNumber       int    `json:"pr_number,omitempty"`
-	DisplayName    string `json:"display_name"`
+	Kind                string   `json:"kind"`
+	RepositoryID        string   `json:"repository_id"`
+	LocalPath           string   `json:"local_path"`
+	GitHubURL           string   `json:"github_url"`
+	RemoteURL           string   `json:"remote_url"`
+	Provider            string   `json:"provider"`
+	ProviderHost        string   `json:"provider_host"`
+	ProviderScope       string   `json:"provider_scope"`
+	ProviderRepoID      string   `json:"provider_repo_id"`
+	ProviderOwner       string   `json:"provider_owner"`
+	ProviderName        string   `json:"provider_name"`
+	BaseBranch          string   `json:"base_branch"`
+	CheckoutBranch      string   `json:"checkout_branch"`
+	BranchPolicyID      string   `json:"branch_policy_id"`
+	PRNumber            int      `json:"pr_number,omitempty"`
+	DisplayName         string   `json:"display_name"`
+	FreshBranch         bool     `json:"fresh_branch,omitempty"`
+	NewBranchName       string   `json:"new_branch_name,omitempty"`
+	ConfirmDiscard      bool     `json:"confirm_discard,omitempty"`
+	ConsentedDirtyFiles []string `json:"consented_dirty_files,omitempty"`
 }
 
 func (h *TaskHandlers) httpAttachWorkspaceSources(c *gin.Context) {
@@ -77,6 +81,14 @@ func (h *TaskHandlers) httpAttachWorkspaceSources(c *gin.Context) {
 }
 
 func parseHTTPWorkspaceSources(raw []json.RawMessage) ([]service.WorkspaceSourceInput, error) {
+	return parseHTTPWorkspaceSourcesWithFreshBranch(raw, false)
+}
+
+func parseHTTPTaskWorkspaceSources(raw []json.RawMessage) ([]service.WorkspaceSourceInput, error) {
+	return parseHTTPWorkspaceSourcesWithFreshBranch(raw, true)
+}
+
+func parseHTTPWorkspaceSourcesWithFreshBranch(raw []json.RawMessage, allowFreshBranch bool) ([]service.WorkspaceSourceInput, error) {
 	sources := make([]service.WorkspaceSourceInput, 0, len(raw))
 	for _, item := range raw {
 		var fields map[string]json.RawMessage
@@ -93,6 +105,11 @@ func parseHTTPWorkspaceSources(raw []json.RawMessage) ([]service.WorkspaceSource
 			for _, key := range []string{"repository_id", "remote_url", "github_url", "provider", "provider_host", "provider_scope", "provider_repo_id", "provider_owner", "provider_name", "base_branch", "checkout_branch", "branch_policy_id", "pr_number"} {
 				allowed[key] = true
 			}
+			if allowFreshBranch {
+				for _, key := range []string{"fresh_branch", "new_branch_name", "confirm_discard", "consented_dirty_files"} {
+					allowed[key] = true
+				}
+			}
 		case string(service.WorkspaceSourceFolder):
 			allowed["display_name"] = true
 		default:
@@ -107,7 +124,28 @@ func parseHTTPWorkspaceSources(raw []json.RawMessage) ([]service.WorkspaceSource
 		if err := json.Unmarshal(item, &source); err != nil {
 			return nil, err
 		}
-		sources = append(sources, service.WorkspaceSourceInput{Kind: service.WorkspaceSourceKind(source.Kind), RepositoryID: source.RepositoryID, LocalPath: source.LocalPath, GitHubURL: source.GitHubURL, RemoteURL: source.RemoteURL, Provider: source.Provider, ProviderHost: source.ProviderHost, ProviderScope: source.ProviderScope, ProviderRepoID: source.ProviderRepoID, ProviderOwner: source.ProviderOwner, ProviderName: source.ProviderName, BaseBranch: source.BaseBranch, CheckoutBranch: source.CheckoutBranch, BranchPolicyID: source.BranchPolicyID, PRNumber: source.PRNumber, DisplayName: source.DisplayName})
+		sources = append(sources, service.WorkspaceSourceInput{
+			Kind:                service.WorkspaceSourceKind(source.Kind),
+			RepositoryID:        source.RepositoryID,
+			LocalPath:           source.LocalPath,
+			GitHubURL:           source.GitHubURL,
+			RemoteURL:           source.RemoteURL,
+			Provider:            source.Provider,
+			ProviderHost:        source.ProviderHost,
+			ProviderScope:       source.ProviderScope,
+			ProviderRepoID:      source.ProviderRepoID,
+			ProviderOwner:       source.ProviderOwner,
+			ProviderName:        source.ProviderName,
+			BaseBranch:          source.BaseBranch,
+			CheckoutBranch:      source.CheckoutBranch,
+			BranchPolicyID:      source.BranchPolicyID,
+			PRNumber:            source.PRNumber,
+			DisplayName:         source.DisplayName,
+			FreshBranch:         source.FreshBranch,
+			NewBranchName:       source.NewBranchName,
+			ConfirmDiscard:      source.ConfirmDiscard,
+			ConsentedDirtyFiles: source.ConsentedDirtyFiles,
+		})
 	}
 	return sources, nil
 }
@@ -920,7 +958,7 @@ func (h *TaskHandlers) httpCreateTask(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "workspace_sources cannot be combined with repositories or workspace_path"})
 			return
 		}
-		parsed, parseErr := parseHTTPWorkspaceSources(*body.WorkspaceSources)
+		parsed, parseErr := parseHTTPTaskWorkspaceSources(*body.WorkspaceSources)
 		if parseErr != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": parseErr.Error()})
 			return
@@ -1031,7 +1069,11 @@ func (h *TaskHandlers) httpCreateTask(c *gin.Context) {
 		return
 	}
 
-	if !h.commitFreshBranch(c, task.ID, task.Title, body.WorkspaceID, body.Repositories, repos) {
+	freshInputs, freshRepos := body.Repositories, repos
+	if workspaceSources != nil {
+		freshInputs, freshRepos = workspaceSourceRepositoryInputs(*workspaceSources)
+	}
+	if !h.commitFreshBranch(c, task.ID, task.Title, body.WorkspaceID, freshInputs, freshRepos) {
 		return
 	}
 
@@ -1420,26 +1462,63 @@ func convertCreateTaskRepositories(c *gin.Context, inputs []httpTaskRepositoryIn
 			c.JSON(http.StatusBadRequest, gin.H{"error": "repository_id, local_path, or remote_url is required"})
 			return nil, false
 		}
-		repos = append(repos, dto.TaskRepositoryInput{
-			RepositoryID:   r.RepositoryID,
-			BaseBranch:     r.BaseBranch,
-			CheckoutBranch: r.CheckoutBranch,
-			BranchPolicyID: r.BranchPolicyID,
-			PRNumber:       r.PRNumber,
-			LocalPath:      r.LocalPath,
-			Name:           r.Name,
-			DefaultBranch:  r.DefaultBranch,
-			GitHubURL:      r.GitHubURL,
-			RemoteURL:      r.RemoteURL,
-			Provider:       r.Provider,
-			ProviderHost:   r.ProviderHost,
-			ProviderScope:  r.ProviderScope,
-			ProviderRepoID: r.ProviderRepoID,
-			ProviderOwner:  r.ProviderOwner,
-			ProviderName:   r.ProviderName,
-		})
+		repos = append(repos, dtoTaskRepositoryInput(r))
 	}
 	return repos, true
+}
+
+func dtoTaskRepositoryInput(r httpTaskRepositoryInput) dto.TaskRepositoryInput {
+	return dto.TaskRepositoryInput{
+		RepositoryID:   r.RepositoryID,
+		BaseBranch:     r.BaseBranch,
+		CheckoutBranch: r.CheckoutBranch,
+		BranchPolicyID: r.BranchPolicyID,
+		PRNumber:       r.PRNumber,
+		LocalPath:      r.LocalPath,
+		Name:           r.Name,
+		DefaultBranch:  r.DefaultBranch,
+		GitHubURL:      r.GitHubURL,
+		RemoteURL:      r.RemoteURL,
+		Provider:       r.Provider,
+		ProviderHost:   r.ProviderHost,
+		ProviderScope:  r.ProviderScope,
+		ProviderRepoID: r.ProviderRepoID,
+		ProviderOwner:  r.ProviderOwner,
+		ProviderName:   r.ProviderName,
+	}
+}
+
+func workspaceSourceRepositoryInputs(sources []service.WorkspaceSourceInput) ([]httpTaskRepositoryInput, []dto.TaskRepositoryInput) {
+	inputs := make([]httpTaskRepositoryInput, 0, len(sources))
+	repos := make([]dto.TaskRepositoryInput, 0, len(sources))
+	for _, source := range sources {
+		if source.Kind != service.WorkspaceSourceRepository {
+			continue
+		}
+		input := httpTaskRepositoryInput{
+			RepositoryID:        source.RepositoryID,
+			LocalPath:           source.LocalPath,
+			GitHubURL:           source.GitHubURL,
+			RemoteURL:           source.RemoteURL,
+			Provider:            source.Provider,
+			ProviderHost:        source.ProviderHost,
+			ProviderScope:       source.ProviderScope,
+			ProviderRepoID:      source.ProviderRepoID,
+			ProviderOwner:       source.ProviderOwner,
+			ProviderName:        source.ProviderName,
+			BaseBranch:          source.BaseBranch,
+			CheckoutBranch:      source.CheckoutBranch,
+			BranchPolicyID:      source.BranchPolicyID,
+			PRNumber:            source.PRNumber,
+			FreshBranch:         source.FreshBranch,
+			NewBranchName:       source.NewBranchName,
+			ConfirmDiscard:      source.ConfirmDiscard,
+			ConsentedDirtyFiles: source.ConsentedDirtyFiles,
+		}
+		inputs = append(inputs, input)
+		repos = append(repos, dtoTaskRepositoryInput(input))
+	}
+	return inputs, repos
 }
 
 // associatePRFromRepoInputs checks if any repository input contains a GitHub PR URL

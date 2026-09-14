@@ -6,6 +6,16 @@ export type TaskRepositoryPickerOptions = {
   provider?: string;
 };
 
+async function chooseRepositorySource(page: Page, mobile: boolean): Promise<void> {
+  const options = page.getByTestId("workspace-source-menu-options");
+  await expect(options).toBeVisible();
+  const repository = options.getByTestId("workspace-source-menu-repository");
+  if (mobile) {
+    await waitForFiniteAnimations(options);
+    await repository.dispatchEvent("click");
+  } else await repository.click();
+}
+
 /** Opens the shared task repository picker in the current responsive layout. */
 export async function openTaskRepositoryPicker(
   page: Page,
@@ -18,41 +28,39 @@ export async function openTaskRepositoryPicker(
     const sheetOpen = (await sheet.count()) > 0 && (await sheet.isVisible().catch(() => false));
     if (sheetOpen) {
       await waitForFiniteAnimations(sheet);
-      if ((await management.count()) > 0 && (await management.isVisible().catch(() => false))) {
-        await expect(add).toBeVisible();
-        await add.tap();
-      } else {
-        const back = page.getByTestId("mobile-repository-back");
-        await expect(back).toBeVisible();
-        await back.tap();
-        await expect(management).toBeVisible();
-        await expect(add).toBeVisible();
-        await add.tap();
+      if (!(await management.isVisible().catch(() => false))) {
+        await expect
+          .poll(() => sheet.isVisible().catch(() => false), {
+            timeout: 10_000,
+            message: "mobile repository sheet did not finish closing",
+          })
+          .toBe(false);
       }
-    } else {
-      await expect(sheet).toBeHidden();
-      const back = page.getByTestId("mobile-repository-back");
-      if ((await back.count()) > 0 && (await back.isVisible().catch(() => false))) {
-        await back.tap();
-      }
+    }
+    if (!(await management.isVisible().catch(() => false))) {
       const manager = page.getByTestId("mobile-repository-manager");
-      await expect(manager).toBeVisible();
+      await expect(manager).toBeVisible({ timeout: 15_000 });
       await manager.tap();
       await expect(sheet).toBeVisible();
       await waitForFiniteAnimations(sheet);
-      await expect(add).toBeVisible();
-      await add.tap();
     }
+    await expect(management).toBeVisible();
+    await expect(add).toBeVisible();
+    await waitForFiniteAnimations(sheet);
+    await add.dispatchEvent("click");
   } else {
     await page.getByTestId("add-repository").click();
   }
 
+  await chooseRepositorySource(page, mobile);
   await expect(page.getByTestId("task-repository-picker")).toBeVisible();
   if (provider) {
     const sourceTab = page.getByTestId(`task-repository-source-${provider}`);
     await expect(sourceTab).toBeVisible({ timeout: 15_000 });
-    if (mobile) await sourceTab.tap();
-    else await sourceTab.click();
+    if (mobile) {
+      await waitForFiniteAnimations(page.getByTestId("task-repository-picker"));
+      await sourceTab.dispatchEvent("click");
+    } else await sourceTab.click();
   }
 }
 

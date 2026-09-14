@@ -198,6 +198,7 @@ test.describe("Task creation with branch policies", () => {
       );
 
       await dialog.getByTestId("add-repository").click();
+      await testPage.getByTestId("workspace-source-menu-repository").click();
       await dialog
         .getByTestId("task-repository-local-option")
         .filter({ hasText: secondRepositoryName })

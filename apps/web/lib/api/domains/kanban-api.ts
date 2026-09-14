@@ -86,6 +86,7 @@ export async function createTask(
       provider_owner?: string;
       provider_name?: string;
       fresh_branch?: boolean;
+      new_branch_name?: string;
       confirm_discard?: boolean;
       consented_dirty_files?: string[];
     }>;

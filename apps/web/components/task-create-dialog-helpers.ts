@@ -31,6 +31,7 @@ type RemoteRepoPRMetadata = {
 };
 type FreshRepositoryPayload = Partial<{
   fresh_branch: boolean;
+  new_branch_name: string;
   confirm_discard: boolean;
   consented_dirty_files: string[];
 }>;
@@ -517,6 +518,18 @@ function workspaceRepositorySource(
 ): WorkspaceSourceRequest & { kind: "repository" } {
   return {
     kind: "repository",
+    ...repositoryIdentityFields(repository),
+    ...repositoryBranchFields(repository),
+    ...repositoryFreshBranchFields(repository),
+  };
+}
+
+type RepositorySourceFields = Partial<
+  Omit<Extract<WorkspaceSourceRequest, { kind: "repository" }>, "kind">
+>;
+
+function repositoryIdentityFields(repository: CreateTaskRepositoryPayload): RepositorySourceFields {
+  return {
     ...(repository.repository_id ? { repository_id: repository.repository_id } : {}),
     ...(repository.local_path ? { local_path: repository.local_path } : {}),
     ...(repository.github_url ? { github_url: repository.github_url } : {}),
@@ -527,10 +540,30 @@ function workspaceRepositorySource(
     ...(repository.provider_repo_id ? { provider_repo_id: repository.provider_repo_id } : {}),
     ...(repository.provider_owner ? { provider_owner: repository.provider_owner } : {}),
     ...(repository.provider_name ? { provider_name: repository.provider_name } : {}),
+  };
+}
+
+function repositoryBranchFields(repository: CreateTaskRepositoryPayload): RepositorySourceFields {
+  return {
     ...(repository.base_branch ? { base_branch: repository.base_branch } : {}),
     ...(repository.checkout_branch ? { checkout_branch: repository.checkout_branch } : {}),
     ...(repository.branch_policy_id ? { branch_policy_id: repository.branch_policy_id } : {}),
     ...(repository.pr_number ? { pr_number: repository.pr_number } : {}),
+  };
+}
+
+function repositoryFreshBranchFields(
+  repository: CreateTaskRepositoryPayload,
+): RepositorySourceFields {
+  return {
+    ...(repository.fresh_branch ? { fresh_branch: repository.fresh_branch } : {}),
+    ...(repository.new_branch_name ? { new_branch_name: repository.new_branch_name } : {}),
+    ...(repository.confirm_discard !== undefined
+      ? { confirm_discard: repository.confirm_discard }
+      : {}),
+    ...(repository.consented_dirty_files
+      ? { consented_dirty_files: repository.consented_dirty_files }
+      : {}),
   };
 }
 

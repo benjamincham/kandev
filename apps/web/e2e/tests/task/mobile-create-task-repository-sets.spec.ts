@@ -45,30 +45,27 @@ test.describe("Repository sets in the mobile task-create picker", () => {
     const repositoryChips = testPage.getByTestId("repo-chip-trigger");
     await expect(repositoryChips.first()).toBeVisible();
 
-    await testPage.getByTestId("repository-sets-trigger").tap();
+    await testPage.getByTestId("mobile-repository-add").tap();
+    const sourceOptions = testPage.getByTestId("workspace-source-menu-options");
+    await expect(sourceOptions).toBeVisible();
+    await sourceOptions.getByTestId("workspace-source-menu-set").tap();
     const options = testPage.getByTestId("repository-set-option");
     const option = options.filter({ hasText: SET_NAME });
     await expect(option).toHaveCount(1);
     await expect(option).toBeVisible();
-    const menu = testPage.locator('[data-slot="dropdown-menu-content"]').filter({ has: option });
-    await waitForFiniteAnimations(menu);
+    const picker = testPage.getByTestId("workspace-source-set-picker");
+    await waitForFiniteAnimations(picker);
     await option.tap();
 
     await expect(repositoryChips).toHaveCount(2);
     await expect(repositoryChips.nth(1)).toContainText(SECOND_REPO_NAME);
     await expect(testPage.getByTestId("repo-chip").nth(1)).toContainText("develop");
 
-    if (prCapture.capturing) {
-      // Let the bottom sheet finish dismissing so the asset shows the resulting
-      // rows rather than a half-faded menu over them.
-      await expect(options).toHaveCount(0);
-    }
+    await expect(options).toHaveCount(0);
     await assertNoDocumentHorizontalOverflow(testPage, "repository set applied on mobile");
     await prCapture.screenshot("mobile-repository-set-applied", {
       caption: "Applying a repository set on a phone fills the picker with both members.",
     });
-    await testPage.getByTestId("mobile-repository-done").tap();
-
     const title = `Mobile repository set task ${Date.now()}`;
     await dialog.getByTestId("task-title-input").fill(title);
     await dialog.getByTestId("task-description-input").fill("Created from a mobile repository set");

@@ -1,4 +1,5 @@
 import { test, expect } from "../../fixtures/test-base";
+import { waitForFiniteAnimations } from "../../helpers/animations";
 import { assertNoDocumentHorizontalOverflow } from "../../helpers/layout-assertions";
 import { useRegularMode } from "../../helpers/regular-mode";
 import { MobileKanbanPage } from "../../pages/mobile-kanban-page";
@@ -22,6 +23,9 @@ test.describe("Create task workspace repository picker on mobile", () => {
     await expect(management).toBeVisible();
     await expect(repositoryChips.first()).toContainText("E2E Repo");
     await management.getByTestId("mobile-repository-add").tap();
+    const sourceOptions = testPage.getByTestId("workspace-source-menu-options");
+    await expect(sourceOptions).toBeVisible();
+    await sourceOptions.getByTestId("workspace-source-menu-repository").tap();
     const selectedElsewhere = testPage
       .getByTestId("task-repository-local-option")
       .filter({ hasText: "E2E Repo" });
@@ -30,7 +34,8 @@ test.describe("Create task workspace repository picker on mobile", () => {
     await expect(management).toBeVisible();
     await expect(repositoryChips).toHaveCount(2);
     await expect(repositoryChips.nth(1)).toContainText("E2E Repo");
-    await testPage.getByTestId("mobile-repository-done").tap();
+    await waitForFiniteAnimations(testPage.getByTestId("mobile-repository-sheet-content"));
+    await testPage.getByTestId("mobile-repository-done").dispatchEvent("click");
     await expect(manager).toContainText("Repositories (2)");
     await dwell(
       testPage,

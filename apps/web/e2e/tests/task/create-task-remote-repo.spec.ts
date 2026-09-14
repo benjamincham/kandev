@@ -1,6 +1,7 @@
 import { test, expect } from "../../fixtures/test-base";
 import type { ApiClient } from "../../helpers/api-client";
 import type { Page } from "@playwright/test";
+import { waitForFiniteAnimations } from "../../helpers/animations";
 import { KanbanPage } from "../../pages/kanban-page";
 import { openTaskRepositoryPicker } from "../../helpers/task-repository-picker";
 
@@ -102,6 +103,10 @@ async function clickRemoteMode(testPage: Page): Promise<void> {
   while ((await removeButtons.count()) > 0) {
     await removeButtons.first().click();
   }
+  const remoteRemoveButtons = testPage.getByTestId("remote-chip-remove");
+  while ((await remoteRemoveButtons.count()) > 0) {
+    await remoteRemoveButtons.first().click();
+  }
   await openTaskRepositoryPicker(testPage, { provider: "github" });
 }
 
@@ -167,7 +172,10 @@ async function pasteUrlInChip(testPage: Page, url: string, chipIndex = 0): Promi
 
 async function expectPopoverFitsDialog(testPage: Page): Promise<void> {
   const dialogBox = await testPage.getByTestId("create-task-dialog").boundingBox();
-  const popoverBox = await testPage.getByTestId("task-repository-picker-popover").boundingBox();
+  const popover = testPage.getByTestId("workspace-source-menu");
+  await expect(popover).toBeVisible();
+  await waitForFiniteAnimations(popover);
+  const popoverBox = await popover.boundingBox();
   expect(dialogBox).not.toBeNull();
   expect(popoverBox).not.toBeNull();
   expect(popoverBox!.y + popoverBox!.height).toBeLessThanOrEqual(
@@ -201,17 +209,13 @@ test.describe("Task creation from Remote tab (chip picker)", () => {
     await openCreateDialog(testPage, kanban);
     await clickRemoteMode(testPage);
 
-    const popover = testPage.getByTestId("task-repository-picker-popover");
+    const popover = testPage.getByTestId("workspace-source-menu");
     const input = testPage.getByTestId("task-repository-picker-input");
     await expect(testPage.getByTestId("task-repository-picker-results")).toBeVisible();
     // Measure the loading state after the finite popover entrance animation.
     // Otherwise its scale transform makes the first box a few pixels smaller
     // than the loaded-state box even though the layout itself never shifts.
-    await popover.evaluate(async (element) => {
-      await Promise.all(
-        element.getAnimations().map((animation) => animation.finished.catch(() => undefined)),
-      );
-    });
+    await waitForFiniteAnimations(popover);
     const [loadingPopoverBox, loadingInputBox] = await Promise.all([
       popover.boundingBox(),
       input.boundingBox(),
@@ -411,6 +415,7 @@ test.describe("Task creation from Remote tab (chip picker)", () => {
     // (e.g. "github.com/pas…ner/paste-repo"), so assert on the trailing
     // repo name.
     await testPage.getByTestId("add-repository").click();
+    await testPage.getByTestId("workspace-source-menu-repository").click();
     await pasteUrlInChip(testPage, "https://github.com/paste-owner/paste-repo", 1);
     await expect(testPage.getByTestId("remote-repo-chip-trigger").nth(1)).toContainText(
       "paste-repo",
@@ -419,6 +424,7 @@ test.describe("Task creation from Remote tab (chip picker)", () => {
 
     // Add row 2 and paste a PR URL.
     await testPage.getByTestId("add-repository").click();
+    await testPage.getByTestId("workspace-source-menu-repository").click();
     await pasteUrlInChip(testPage, "https://github.com/pr-owner/pr-repo/pull/42", 2);
     await expect(testPage.getByTestId("remote-repo-chip-trigger").nth(2)).toContainText("pull/42", {
       timeout: 5_000,
@@ -561,6 +567,7 @@ test.describe("Task creation from Remote tab (chip picker)", () => {
 
     await pickRepoInChip(testPage, "mock-user/alpha", 0);
     await testPage.getByTestId("add-repository").click();
+    await testPage.getByTestId("workspace-source-menu-repository").click();
     await pasteUrlInChip(testPage, "https://github.com/paste-owner/paste-repo", 1);
 
     await expect(testPage.getByTestId("remote-repo-chip")).toHaveCount(2);

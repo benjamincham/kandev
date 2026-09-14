@@ -181,22 +181,26 @@ type TaskRepositoryInput struct {
 // used when creating a task. The complete list is presence-aware at transport
 // boundaries so an empty list means an explicit scratch workspace.
 type TaskWorkspaceSourceInput struct {
-	Kind           string `json:"kind"`
-	RepositoryID   string `json:"repository_id,omitempty"`
-	LocalPath      string `json:"local_path,omitempty"`
-	GitHubURL      string `json:"github_url,omitempty"`
-	RemoteURL      string `json:"remote_url,omitempty"`
-	Provider       string `json:"provider,omitempty"`
-	ProviderHost   string `json:"provider_host,omitempty"`
-	ProviderScope  string `json:"provider_scope,omitempty"`
-	ProviderRepoID string `json:"provider_repo_id,omitempty"`
-	ProviderOwner  string `json:"provider_owner,omitempty"`
-	ProviderName   string `json:"provider_name,omitempty"`
-	BaseBranch     string `json:"base_branch,omitempty"`
-	CheckoutBranch string `json:"checkout_branch,omitempty"`
-	BranchPolicyID string `json:"branch_policy_id,omitempty"`
-	PRNumber       int    `json:"pr_number,omitempty"`
-	DisplayName    string `json:"display_name,omitempty"`
+	Kind                string   `json:"kind"`
+	RepositoryID        string   `json:"repository_id,omitempty"`
+	LocalPath           string   `json:"local_path,omitempty"`
+	GitHubURL           string   `json:"github_url,omitempty"`
+	RemoteURL           string   `json:"remote_url,omitempty"`
+	Provider            string   `json:"provider,omitempty"`
+	ProviderHost        string   `json:"provider_host,omitempty"`
+	ProviderScope       string   `json:"provider_scope,omitempty"`
+	ProviderRepoID      string   `json:"provider_repo_id,omitempty"`
+	ProviderOwner       string   `json:"provider_owner,omitempty"`
+	ProviderName        string   `json:"provider_name,omitempty"`
+	BaseBranch          string   `json:"base_branch,omitempty"`
+	CheckoutBranch      string   `json:"checkout_branch,omitempty"`
+	BranchPolicyID      string   `json:"branch_policy_id,omitempty"`
+	PRNumber            int      `json:"pr_number,omitempty"`
+	DisplayName         string   `json:"display_name,omitempty"`
+	FreshBranch         bool     `json:"fresh_branch,omitempty"`
+	NewBranchName       string   `json:"new_branch_name,omitempty"`
+	ConfirmDiscard      bool     `json:"confirm_discard,omitempty"`
+	ConsentedDirtyFiles []string `json:"consented_dirty_files,omitempty"`
 }
 
 // CreateTaskRequest for creating a new task

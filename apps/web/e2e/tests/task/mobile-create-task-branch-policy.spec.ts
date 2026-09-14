@@ -136,6 +136,9 @@ test.describe("Task branch policy selection on mobile", () => {
       await dialog.getByTestId("mobile-repository-manager").tap();
       const management = testPage.getByTestId("mobile-repository-management");
       await management.getByTestId("mobile-repository-add").tap();
+      const sourceOptions = testPage.getByTestId("workspace-source-menu-options");
+      await expect(sourceOptions).toBeVisible();
+      await sourceOptions.getByTestId("workspace-source-menu-repository").tap();
 
       const secondRepositoryOption = testPage
         .getByTestId("task-repository-local-option")
@@ -148,7 +151,7 @@ test.describe("Task branch policy selection on mobile", () => {
 
       const branchChips = management.getByTestId("branch-chip-trigger");
       await expect(branchChips).toHaveCount(2);
-      await branchChips.nth(0).tap();
+      await branchChips.nth(0).dispatchEvent("click");
       const policyOption = testPage.getByRole("option", { name: new RegExp(policy.name) });
       await expect(policyOption).toHaveAttribute("aria-disabled", "true");
       await expect(testPage.getByTestId(`branch-policy-option-info-${policy.id}`)).toHaveAttribute(

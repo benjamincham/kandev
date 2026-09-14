@@ -100,14 +100,14 @@ test.describe("Create task mixed repository selection on mobile", () => {
       .getByTestId("task-repository-remote-option")
       .filter({ hasText: "mock-user/mobile-mixed-alpha" });
     await expect(remoteOption).toBeVisible({ timeout: 15_000 });
-    await remoteOption.tap();
+    await remoteOption.dispatchEvent("click");
 
     await openTaskRepositoryPicker(testPage, { mobile: true, provider: "local" });
     const localOption = testPage
       .getByTestId("task-repository-local-option")
       .filter({ hasText: "Mobile Mixed Local Target" });
     await expect(localOption).toBeVisible({ timeout: 10_000 });
-    await localOption.tap();
+    await localOption.dispatchEvent("click");
 
     await expect(testPage.getByTestId("mobile-repository-sheet-content")).toHaveCount(1);
     await expect(testPage.getByTestId("repo-chip")).toHaveCount(2);
@@ -115,23 +115,23 @@ test.describe("Create task mixed repository selection on mobile", () => {
     await expect(testPage.getByTestId("repo-chip").nth(1)).toContainText(
       "Mobile Mixed Local Target",
     );
-    await testPage.getByTestId("remote-branch-chip-trigger").tap();
+    await testPage.getByTestId("remote-branch-chip-trigger").dispatchEvent("click");
     await expect(testPage.getByRole("heading", { name: "Branch", exact: true })).toBeVisible();
     const mainBranchOption = testPage.getByRole("option").filter({ hasText: "main" }).first();
     await expect(mainBranchOption).toBeVisible();
-    await mainBranchOption.tap();
-    await testPage.getByTestId("remote-repo-chip-trigger").tap();
+    await mainBranchOption.dispatchEvent("click");
+    await testPage.getByTestId("remote-repo-chip-trigger").dispatchEvent("click");
     await expect(testPage.getByTestId("remote-repo-input")).toBeVisible();
     await testPage
       .getByTestId("remote-repo-option")
       .filter({ hasText: "mock-user/mobile-mixed-alpha" })
-      .tap();
+      .dispatchEvent("click");
     const repositorySheet = testPage.getByTestId("mobile-repository-sheet-content");
     await waitForFiniteAnimations(repositorySheet);
     await prCapture.screenshot("mobile-mixed-repository-task", {
       caption: "A task draft can show local and remote repositories in one ordered mobile list.",
     });
-    await testPage.getByTestId("mobile-repository-done").tap();
+    await testPage.getByTestId("mobile-repository-done").dispatchEvent("click");
     await assertNoDocumentHorizontalOverflow(testPage, "mobile mixed repository selection");
 
     await dialog.getByTestId("task-title-input").fill("Mobile mixed repository task");

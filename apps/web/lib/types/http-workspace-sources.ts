@@ -59,6 +59,10 @@ export type WorkspaceRepositorySourceRequest = {
   checkout_branch?: string;
   branch_policy_id?: string;
   pr_number?: number;
+  fresh_branch?: boolean;
+  new_branch_name?: string;
+  confirm_discard?: boolean;
+  consented_dirty_files?: string[];
 };
 
 export type WorkspaceFolderSourceRequest = {

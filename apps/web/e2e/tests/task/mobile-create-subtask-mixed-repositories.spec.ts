@@ -84,18 +84,18 @@ test.describe("New Subtask mixed repository selection on mobile", () => {
     await testPage
       .getByTestId("task-repository-remote-option")
       .filter({ hasText: "mock-user/mobile-subtask-mixed" })
-      .tap();
+      .dispatchEvent("click");
     await openTaskRepositoryPicker(testPage, { mobile: true, provider: "local" });
     await testPage
       .getByTestId("task-repository-local-option")
       .filter({ hasText: "Mobile Subtask Mixed Local" })
-      .tap();
+      .dispatchEvent("click");
 
     await expect(testPage.getByTestId("mobile-repository-sheet-content")).toHaveCount(1);
     await expect(testPage.getByTestId("repo-chip")).toHaveCount(2);
     await expect(testPage.getByTestId("remote-repo-chip")).toHaveCount(1);
     await assertNoDocumentHorizontalOverflow(testPage, "mobile mixed subtask repository sheet");
-    await testPage.getByTestId("mobile-repository-done").tap();
+    await testPage.getByTestId("mobile-repository-done").dispatchEvent("click");
 
     const childTitle = `Mobile mixed subtask ${Date.now()}`;
     await dialog.getByTestId("subtask-title-input").fill(childTitle);

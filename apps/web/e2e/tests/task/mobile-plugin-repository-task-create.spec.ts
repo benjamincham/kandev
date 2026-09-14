@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test";
 import { expect, test } from "../../fixtures/test-base";
 import { installFixturePlugin, PLUGIN_ID } from "../../helpers/plugin-fixture";
 import type { ApiClient } from "../../helpers/api-client";
+import { waitForFiniteAnimations } from "../../helpers/animations";
 import { MobileKanbanPage } from "../../pages/mobile-kanban-page";
 import { assertNoDocumentHorizontalOverflow } from "../../helpers/layout-assertions";
 import { openTaskRepositoryPicker } from "../../helpers/task-repository-picker";
@@ -53,7 +54,18 @@ async function selectFixtureRepository(page: Page): Promise<void> {
     .filter({ hasText: "TEAM/fixture" });
   await expect(repositoryOption).toHaveCount(1);
   await expect(repositoryOption).toBeVisible({ timeout: 15_000 });
-  await repositoryOption.tap();
+  await repositoryOption.dispatchEvent("click");
+  const sheet = page.getByTestId("mobile-repository-sheet-content");
+  await waitForFiniteAnimations(sheet);
+  await expect
+    .poll(() => sheet.isVisible().catch(() => false), {
+      timeout: 10_000,
+      message: "mobile repository picker did not finish closing",
+    })
+    .toBe(false);
+  await page.getByTestId("mobile-repository-manager").dispatchEvent("click");
+  await expect(page.getByTestId("mobile-repository-management")).toBeVisible();
+  await expect(page.getByTestId("remote-repo-chip-trigger")).toHaveCount(1);
   await expect(page.getByTestId("remote-repo-chip-trigger")).toContainText("TEAM/fixture");
 }
 
@@ -61,10 +73,10 @@ async function selectFixtureBranch(page: Page): Promise<void> {
   const branch = page.getByTestId("remote-branch-chip-trigger");
   await expect(branch).toHaveCount(1);
   await expect(branch).toBeEnabled({ timeout: 15_000 });
-  await branch.tap();
+  await branch.dispatchEvent("click");
   const option = page.getByRole("option").filter({ hasText: FIXTURE_BRANCH });
   await expect(option).toBeVisible({ timeout: 30_000 });
-  await option.tap();
+  await option.dispatchEvent("click");
   await expect(branch).toContainText(FIXTURE_BRANCH);
 }
 
@@ -91,7 +103,7 @@ test.describe("first-use plugin repository task creation on mobile", () => {
     await expect(dialog).toBeVisible();
     await selectFixtureRepository(testPage);
     await selectFixtureBranch(testPage);
-    await testPage.getByTestId("mobile-repository-done").tap();
+    await testPage.getByTestId("mobile-repository-done").dispatchEvent("click");
     await dialog.getByTestId("task-title-input").fill("Mobile first-use plugin repository task");
     await dialog
       .getByTestId("task-description-input")

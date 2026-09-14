@@ -148,16 +148,24 @@ test.describe("Create task mixed repository selection", () => {
     await kanban.createTaskButton.first().click();
     const dialog = testPage.getByTestId("create-task-dialog");
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByTestId("remove-repo-chip").first()).toBeVisible();
-
-    await dialog.getByTestId("remove-repo-chip").first().click();
+    const remoteRemove = dialog.getByTestId("remote-chip-remove");
+    while ((await remoteRemove.count()) > 0) {
+      await remoteRemove.first().click();
+    }
+    const localRemove = dialog.getByTestId("remove-repo-chip");
+    while ((await localRemove.count()) > 0) {
+      await localRemove.first().click();
+    }
 
     await expect(dialog.getByTestId("repo-chip")).toHaveCount(0);
     await expect(dialog.getByTestId("remote-repo-chip")).toHaveCount(0);
-    await expect(dialog.getByTestId("add-repository")).toBeVisible();
-    await expect(dialog.getByTestId("folder-picker-trigger")).toBeVisible();
-    await expect(dialog.getByTestId("source-mode-workspace")).toHaveCount(0);
-    await expect(dialog.getByTestId("source-mode-remote")).toHaveCount(0);
-    await expect(dialog.getByTestId("source-mode-scratch")).toHaveCount(0);
+    const add = dialog.getByTestId("add-repository");
+    await expect(add).toBeVisible();
+    await expect(add).toContainText("Add Repository/Folder");
+    await add.click();
+    const sourceOptions = testPage.getByTestId("workspace-source-menu-options");
+    await expect(sourceOptions).toBeVisible();
+    await expect(sourceOptions.getByTestId("workspace-source-menu-folder")).toBeDisabled();
+    await testPage.keyboard.press("Escape");
   });
 });

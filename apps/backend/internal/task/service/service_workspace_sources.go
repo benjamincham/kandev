@@ -32,6 +32,9 @@ type WorkspaceSourceInput struct {
 	RepositoryID, LocalPath, GitHubURL, RemoteURL, Provider, ProviderHost, ProviderScope, ProviderRepoID, ProviderOwner, ProviderName string
 	BaseBranch, CheckoutBranch, BranchPolicyID, DisplayName                                                                           string
 	PRNumber                                                                                                                          int
+	FreshBranch, ConfirmDiscard                                                                                                       bool
+	NewBranchName                                                                                                                     string
+	ConsentedDirtyFiles                                                                                                               []string
 }
 
 type AttachWorkspaceSourcesRequest struct {

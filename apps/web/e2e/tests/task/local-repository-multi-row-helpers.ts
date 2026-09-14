@@ -32,6 +32,9 @@ export async function exerciseMultiRowCreation(
   } else {
     await activate(page.getByTestId("add-repository"));
   }
+  const repositorySource = page.getByTestId("workspace-source-menu-repository");
+  await expect(repositorySource).toBeVisible();
+  await activate(repositorySource);
   const secondRow = page.getByTestId("repo-chip").nth(1);
   const refresh = page.getByTestId("task-repository-picker-refresh");
   const create = page.getByTestId("create-local-repository-button");
@@ -99,6 +102,10 @@ export async function exerciseMultiRowCreation(
   await activate(surface.getByRole("button", { name: "Create repository" }));
   await initialized;
   await expect(surface).not.toBeVisible();
+  if (options.mobile) {
+    await page.getByTestId("mobile-repository-manager").dispatchEvent("click");
+    await expect(page.getByTestId("mobile-repository-management")).toBeVisible();
+  }
   await expect(secondRow.getByTestId("repo-chip-trigger")).toContainText(name);
   await expect(secondRow.getByTestId("branch-chip-trigger")).toContainText("main");
   await expect(firstRow).toHaveAttribute("data-repository-id", firstId!);
