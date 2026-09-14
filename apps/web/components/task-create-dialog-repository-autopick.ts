@@ -18,6 +18,7 @@ type RepositoryAutoPickDecision = {
 type RepositoryAutoSelectSettings = {
   lastUsedRepositoryId?: string | null;
   userSettingsLoaded?: boolean;
+  hasWorkspaceSourcesSnapshot?: boolean;
 };
 
 export function useRepositoryAutoSelectEffect(
@@ -37,14 +38,19 @@ export function useRepositoryAutoSelectEffect(
   const hasRemoteSelection = fs.repositorySelections
     ? fs.repositorySelections.some((selection) => selection.kind === "remote")
     : useRemote;
-  const { lastUsedRepositoryId, userSettingsLoaded = true } = settings;
+  const {
+    lastUsedRepositoryId,
+    userSettingsLoaded = true,
+    hasWorkspaceSourcesSnapshot = false,
+  } = settings;
   useEffect(() => {
     if (
       !open ||
       !workspaceId ||
       fs.noRepository ||
       hasRemoteSelection ||
-      fs.repositorySelectionsTouched
+      fs.repositorySelectionsTouched ||
+      hasWorkspaceSourcesSnapshot
     )
       return;
     const decision = decideRepositoryAutoPick(
@@ -75,6 +81,7 @@ export function useRepositoryAutoSelectEffect(
     hydrateRepositories,
     lastUsedRepositoryId,
     userSettingsLoaded,
+    hasWorkspaceSourcesSnapshot,
   ]);
 }
 

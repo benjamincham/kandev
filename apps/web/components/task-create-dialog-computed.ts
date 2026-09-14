@@ -109,11 +109,7 @@ function resolveDialogWorkflowSelection({
  */
 export function computeHasRepositorySelection(fs: DialogFormState): boolean {
   if (fs.noRepository) return true;
-  return resolveRepositorySelections(fs).some((selection) =>
-    selection.kind === "remote"
-      ? selection.url.trim() !== ""
-      : Boolean(selection.repositoryId || selection.localPath),
-  );
+  return resolveRepositorySelections(fs).some(hasSelectedSourceValue);
 }
 
 /**
@@ -126,11 +122,17 @@ export function computeHasRepositorySelection(fs: DialogFormState): boolean {
  */
 export function computeSelectedRepoCount(fs: DialogFormState): number {
   if (fs.noRepository) return 0;
-  return resolveRepositorySelections(fs).filter((selection) =>
-    selection.kind === "remote"
-      ? selection.url.trim() !== ""
-      : Boolean(selection.repositoryId || selection.localPath),
-  ).length;
+  return resolveRepositorySelections(fs).filter(isSelectedRepository).length;
+}
+
+function hasSelectedSourceValue(selection: ReturnType<typeof resolveRepositorySelections>[number]) {
+  if (selection.kind === "remote") return selection.url.trim() !== "";
+  if (selection.kind === "folder") return Boolean(selection.localPath.trim());
+  return Boolean(selection.repositoryId || selection.localPath);
+}
+
+function isSelectedRepository(selection: ReturnType<typeof resolveRepositorySelections>[number]) {
+  return selection.kind !== "folder" && hasSelectedSourceValue(selection);
 }
 
 /** Filter raw store profiles before executor compatibility or autopick runs. */
@@ -266,6 +268,68 @@ function useExecutorProfileCompat(
   };
 }
 
+function useDialogExecutorState({
+  fs,
+  agentProfiles,
+  executors,
+  repositories,
+  effectiveAgentProfileId,
+  workflowAgentLocked,
+  agentProfileRecentUseContext,
+}: {
+  fs: DialogFormState;
+  agentProfiles: DialogComputedArgs["agentProfiles"];
+  executors: DialogComputedArgs["executors"];
+  repositories: DialogComputedArgs["repositories"];
+  effectiveAgentProfileId: string;
+  workflowAgentLocked: boolean;
+  agentProfileRecentUseContext: DialogComputedArgs["agentProfileRecentUseContext"];
+}) {
+  const allExecutorProfiles = useMemo<ExecutorProfile[]>(() => {
+    return executors.flatMap((executor) =>
+      (executor.profiles ?? []).map((profile) => ({
+        ...profile,
+        executor_type: profile.executor_type ?? executor.type,
+        executor_name: profile.executor_name ?? executor.name,
+      })),
+    );
+  }, [executors]);
+  const selectedRepoCount = computeSelectedRepoCount(fs);
+  const selectedSources = resolveRepositorySelections(fs).filter(hasSelectedSourceValue);
+  const selectedSourceCount = selectedSources.length;
+  const selectedFolderCount = selectedSources.filter(
+    (selection) => selection.kind === "folder",
+  ).length;
+  const folderOnlySelection = selectedSourceCount > 0 && selectedRepoCount === 0;
+  const isMultiRepoSelection = selectedRepoCount > 1;
+  const exec = useExecutorProfileCompat(
+    allExecutorProfiles,
+    fs.executorProfileId,
+    { agentProfileId: effectiveAgentProfileId, agentProfiles, workflowAgentLocked },
+    pickExecutorDisabledReason(fs.noRepository || folderOnlySelection, isMultiRepoSelection),
+  );
+  const agentProfileOptions = useAgentProfileOptions(
+    exec.compatibleAgentProfiles,
+    agentProfileRecentUseContext,
+  );
+  const executorHint = useExecutorHint(
+    executors,
+    fs.executorId,
+    selectedRepoCount,
+    selectedSourceCount,
+    selectedFolderCount,
+  );
+  const isLocalExecutor = useIsLocalExecutor(executors, fs.executorId);
+  const { headerRepositoryOptions } = useRepositoryOptions(repositories, fs.discoveredRepositories);
+  return {
+    exec,
+    agentProfileOptions,
+    executorHint,
+    isLocalExecutor,
+    headerRepositoryOptions,
+  };
+}
+
 export function useDialogComputed({
   fs,
   open,
@@ -319,38 +383,15 @@ export function useDialogComputed({
   // pill loads branches per-repo). Keep the computed value but always feed it
   // the URL branches when in URL mode — sourced from the per-URL hook cache.
   const branchOptions = useBranchOptions(fs.branchesByUrl.branches(firstRemoteUrl));
-  const allExecutorProfiles = useMemo<ExecutorProfile[]>(() => {
-    return executors.flatMap((executor) =>
-      (executor.profiles ?? []).map((p) => ({
-        ...p,
-        executor_type: p.executor_type ?? executor.type,
-        executor_name: p.executor_name ?? executor.name,
-      })),
-    );
-  }, [executors]);
-  // Gate only runtimes whose launch path cannot project sibling repositories.
-  // Count BOTH workspace/local rows AND remote-URL rows (each non-empty row is
-  // a distinct repo the task will operate on) so a 2-row Remote selection
-  // applies the same capability check.
-  const selectedRepoCount = computeSelectedRepoCount(fs);
-  const isMultiRepoSelection = selectedRepoCount > 1;
-  // Use the effective agent ID (form value OR the workflow-locked override)
-  // so the compatibility gate catches the override case too — passing the
-  // raw fs.agentProfileId would let workflow-locked sessions slip past with
-  // an empty selection.
-  const exec = useExecutorProfileCompat(
-    allExecutorProfiles,
-    fs.executorProfileId,
-    { agentProfileId: effectiveAgentProfileId, agentProfiles, workflowAgentLocked },
-    pickExecutorDisabledReason(fs.noRepository, isMultiRepoSelection),
-  );
-  const agentProfileOptions = useAgentProfileOptions(
-    exec.compatibleAgentProfiles,
+  const executorState = useDialogExecutorState({
+    fs,
+    agentProfiles,
+    executors,
+    repositories,
+    effectiveAgentProfileId,
+    workflowAgentLocked,
     agentProfileRecentUseContext,
-  );
-  const executorHint = useExecutorHint(executors, fs.executorId, selectedRepoCount);
-  const isLocalExecutor = useIsLocalExecutor(executors, fs.executorId);
-  const { headerRepositoryOptions } = useRepositoryOptions(repositories, fs.discoveredRepositories);
+  });
   // Treat the dialog as still loading agents until BOTH the agent profiles
   // (DB rows) AND the host-utility capability probe have resolved. The
   // backend reconciler renames profiles ("Claude" → "Claude Sonnet 4.6") only
@@ -366,21 +407,21 @@ export function useDialogComputed({
     workspaceDefaults,
     hasRepositorySelection,
     branchOptions,
-    agentProfileOptions,
-    executorProfileOptions: exec.executorProfileOptions,
-    executorHint,
-    isLocalExecutor,
-    headerRepositoryOptions,
+    agentProfileOptions: executorState.agentProfileOptions,
+    executorProfileOptions: executorState.exec.executorProfileOptions,
+    executorHint: executorState.executorHint,
+    isLocalExecutor: executorState.isLocalExecutor,
+    headerRepositoryOptions: executorState.headerRepositoryOptions,
     agentProfilesLoading,
     executorsLoading,
     workflowAgentLocked,
     workflowAgentProfileId,
     effectiveAgentProfileId,
-    selectedExecutorProfileName: exec.selectedExecutorProfile?.name ?? null,
-    compatibleAgentProfiles: exec.compatibleAgentProfiles,
-    authLoaded: exec.authLoaded,
-    noCompatibleAgent: exec.noCompatibleAgent,
-    agentCompatState: exec.agentCompatState,
-    selectedAgentProfileName: exec.selectedAgentProfileName,
+    selectedExecutorProfileName: executorState.exec.selectedExecutorProfile?.name ?? null,
+    compatibleAgentProfiles: executorState.exec.compatibleAgentProfiles,
+    authLoaded: executorState.exec.authLoaded,
+    noCompatibleAgent: executorState.exec.noCompatibleAgent,
+    agentCompatState: executorState.exec.agentCompatState,
+    selectedAgentProfileName: executorState.exec.selectedAgentProfileName,
   };
 }

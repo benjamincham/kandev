@@ -21,6 +21,7 @@ import { createDebugLogger, isDebug } from "@/lib/debug/log";
 import { t } from "@/lib/i18n";
 import { useRepositoryDiscovery } from "@/hooks/domains/workspace/use-repository-discovery";
 import { resolveRepositorySelections } from "@/components/task-create-dialog-repositories-state";
+import { useLastUsedWorkspaceSourcesEffect } from "@/components/task-create-dialog-workspace-defaults-effect";
 
 // Re-export autopick hooks for callers that imported them from this module.
 export { useWorkflowAgentProfileEffect };
@@ -605,6 +606,7 @@ export function useTaskCreateDialogEffects(fs: DialogFormState, args: TaskCreate
     isLocalExecutor,
   } = args;
   useWorkflowStepsEffect(fs, open, workflowId, effectiveWorkflowId);
+  useLastUsedWorkspaceSourcesEffect(fs, args);
   useWorkflowAgentProfileEffect(fs, workflows, agentProfiles, compatibleAgentProfiles, {
     lastUsedAgentProfileId: args.lastUsedAgentProfileId,
     authLoaded,
@@ -614,6 +616,7 @@ export function useTaskCreateDialogEffects(fs: DialogFormState, args: TaskCreate
   useRepositoryAutoSelectEffect(fs, open, workspaceId, repositories, {
     lastUsedRepositoryId: args.lastUsedRepositoryId,
     userSettingsLoaded: args.userSettingsLoaded,
+    hasWorkspaceSourcesSnapshot: args.hasWorkspaceSourcesSnapshot,
   });
   useDiscoverReposEffect(fs, open, workspaceId, repositoriesLoading, toast);
   useCurrentLocalBranchEffect(fs, open, workspaceId, repositories);

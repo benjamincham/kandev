@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import type { LocalRepository, Repository } from "@/lib/types/http";
 import type {
   DialogFormState,
   TaskRemoteRepoRow,
   TaskRepoRow,
   TaskRepositorySelection,
+  TaskRepositorySetsConfig,
 } from "@/components/task-create-dialog-types";
 import { resolveRepositorySelections } from "@/components/task-create-dialog-repositories-state";
 import {
@@ -25,15 +26,14 @@ import {
   retryRemoteResolution,
 } from "@/components/task-create-dialog-remote-repo-chips";
 import { useRemoteRepositories } from "@/hooks/domains/integrations/use-remote-repositories";
-import type { RemoteRepository } from "@/hooks/domains/integrations/use-remote-repositories";
-import { FolderPicker } from "@/components/folder-picker";
-import type { LocalRepositoryChoice } from "@/components/task-create-dialog-repository-picker";
 import { DesktopMixedRepositoryChips } from "@/components/task-create-dialog-mixed-repository-chips-surfaces";
 import { MobileMixedRepositorySurface } from "@/components/task-create-dialog-mobile-mixed-repository-surface";
+import { useMixedRepositoryActions } from "@/components/task-create-dialog-mixed-repository-actions";
+export { buildLocalRepositorySelection } from "@/components/task-create-dialog-mixed-repository-actions";
+import { FolderSelectionChip } from "@/components/task-create-dialog-workspace-folder-chip";
 import { useTouchDrawer } from "@/hooks/use-compact-task-chrome";
 import { computeBranchIntent } from "@/components/task-create-dialog-branch-utils";
 import { isPickerRemoteProviderUnavailable } from "@/components/task-create-dialog-remote-provider-readiness";
-import { useTranslation } from "react-i18next";
 
 export type MixedRepositoryChipsProps = {
   fs: DialogFormState;
@@ -56,21 +56,8 @@ export type MixedRepositoryChipsProps = {
   repositoryCreationOpen?: boolean;
   onRefreshRepositories?: () => void;
   repositoriesRefreshing?: boolean;
-  repositorySets?: React.ReactNode;
+  repositorySets?: TaskRepositorySetsConfig;
 };
-
-/** Preserves local checkout selection and seeds worktree rows from the repo default. */
-export function buildLocalRepositorySelection(
-  choice: LocalRepositoryChoice,
-  isLocalExecutor?: boolean,
-): Omit<Extract<TaskRepositorySelection, { kind: "local" }>, "key"> {
-  return {
-    kind: "local",
-    ...(choice.repositoryId ? { repositoryId: choice.repositoryId } : {}),
-    ...(choice.localPath ? { localPath: choice.localPath } : {}),
-    branch: isLocalExecutor === false ? (choice.defaultBranch ?? "") : "",
-  };
-}
 
 /** Renders the ordered local and remote rows with one shared source picker. */
 export function MixedRepositoryChips(props: MixedRepositoryChipsProps) {
@@ -114,17 +101,9 @@ export function MixedRepositoryChips(props: MixedRepositoryChipsProps) {
       accessible={accessible}
       onRemoveLocal={actions.removeLocal}
       onRemoveRemote={actions.removeRemote}
+      onRemoveFolder={actions.removeFolder}
     />
   );
-  const folderPicker = (
-    <RepositorySelectionFolder
-      hasRows={selections.length > 0}
-      noRepository={props.fs.noRepository}
-      workspacePath={props.fs.workspacePath}
-      onWorkspacePathChange={props.onWorkspacePathChange}
-    />
-  );
-
   if (mobile) {
     return (
       <MobileMixedRepositorySurface
@@ -133,7 +112,6 @@ export function MixedRepositoryChips(props: MixedRepositoryChipsProps) {
         accessible={accessible}
         selectionsCount={selections.length}
         selectionRows={selectionRows}
-        folderPicker={folderPicker}
         actions={actions}
       />
     );
@@ -146,14 +124,15 @@ export function MixedRepositoryChips(props: MixedRepositoryChipsProps) {
       accessible={accessible}
       workspaceId={props.workspaceId}
       selectionRows={selectionRows}
-      folderPicker={folderPicker}
       freshBranchToggle={props.freshBranchToggle}
       branchLocked={props.branchLocked}
       repositoryLocked={props.repositoryLocked}
       repositorySets={props.repositorySets}
+      folderAvailable={props.isLocalExecutor}
       onSelectLocal={actions.addLocal}
       onSelectRemote={actions.addRemote}
       onPasteRemote={actions.addPastedRemote}
+      onSelectFolder={actions.addFolder}
       onCreateRepository={props.onCreateRepository ? actions.openNewLocalRepository : undefined}
       onRefreshRepositories={props.onRefreshRepositories}
       repositoriesRefreshing={props.repositoriesRefreshing}
@@ -185,6 +164,7 @@ type RepositorySelectionRowsProps = {
   accessible: ReturnType<typeof useRemoteRepositories>;
   onRemoveLocal: (key: string) => void;
   onRemoveRemote: (key: string) => void;
+  onRemoveFolder: (key: string) => void;
 };
 
 function RepositorySelectionRows({
@@ -211,155 +191,64 @@ function RepositorySelectionRows({
   accessible,
   onRemoveLocal,
   onRemoveRemote,
+  onRemoveFolder,
 }: RepositorySelectionRowsProps) {
   return (
     <>
-      {selections.map((selection) =>
-        selection.kind === "local" ? (
-          <LocalSelectionChip
+      {selections.map((selection) => {
+        if (selection.kind === "local") {
+          return (
+            <LocalSelectionChip
+              key={selection.key}
+              row={selection}
+              rows={localRows}
+              repositories={repositories}
+              discoveredRepositories={fs.discoveredRepositories}
+              fs={fs}
+              workspaceId={workspaceId}
+              isLocalExecutor={isLocalExecutor}
+              freshBranchEnabled={freshBranchEnabled}
+              branchPolicyDisabledReason={branchPolicyDisabledReason}
+              onRowRepositoryChange={onRowRepositoryChange}
+              onRowBranchChange={onRowBranchChange}
+              onRowPolicyChange={onRowPolicyChange}
+              onPolicySelected={onPolicySelected}
+              lastUsedBranch={lastUsedBranch}
+              userSettingsLoaded={userSettingsLoaded}
+              onCreateRepository={onCreateRepository}
+              onRefreshRepositories={onRefreshRepositories}
+              repositoriesRefreshing={repositoriesRefreshing}
+              repositoryLocked={repositoryLocked}
+              branchLocked={branchLocked}
+              onRemove={() => onRemoveLocal(selection.key)}
+            />
+          );
+        }
+        if (selection.kind === "remote") {
+          return (
+            <RemoteSelectionChip
+              key={selection.key}
+              row={selection}
+              rows={remoteRows}
+              fs={fs}
+              accessible={accessible}
+              repositoryLocked={repositoryLocked}
+              branchLocked={branchLocked}
+              onRemove={() => onRemoveRemote(selection.key)}
+            />
+          );
+        }
+        return (
+          <FolderSelectionChip
             key={selection.key}
-            row={selection}
-            rows={localRows}
-            repositories={repositories}
-            discoveredRepositories={fs.discoveredRepositories}
-            fs={fs}
-            workspaceId={workspaceId}
-            isLocalExecutor={isLocalExecutor}
-            freshBranchEnabled={freshBranchEnabled}
-            branchPolicyDisabledReason={branchPolicyDisabledReason}
-            onRowRepositoryChange={onRowRepositoryChange}
-            onRowBranchChange={onRowBranchChange}
-            onRowPolicyChange={onRowPolicyChange}
-            onPolicySelected={onPolicySelected}
-            lastUsedBranch={lastUsedBranch}
-            userSettingsLoaded={userSettingsLoaded}
-            onCreateRepository={onCreateRepository}
-            onRefreshRepositories={onRefreshRepositories}
-            repositoriesRefreshing={repositoriesRefreshing}
+            selection={selection}
             repositoryLocked={repositoryLocked}
-            branchLocked={branchLocked}
-            onRemove={() => onRemoveLocal(selection.key)}
+            onRemove={() => onRemoveFolder(selection.key)}
           />
-        ) : (
-          <RemoteSelectionChip
-            key={selection.key}
-            row={selection}
-            rows={remoteRows}
-            fs={fs}
-            accessible={accessible}
-            repositoryLocked={repositoryLocked}
-            branchLocked={branchLocked}
-            onRemove={() => onRemoveRemote(selection.key)}
-          />
-        ),
-      )}
+        );
+      })}
     </>
   );
-}
-
-function RepositorySelectionFolder({
-  hasRows,
-  noRepository,
-  workspacePath,
-  onWorkspacePathChange,
-}: {
-  hasRows: boolean;
-  noRepository: boolean;
-  workspacePath: string;
-  onWorkspacePathChange?: (value: string) => void;
-}) {
-  const { t } = useTranslation();
-  if (hasRows && !noRepository) return null;
-  return (
-    <FolderPicker
-      value={workspacePath}
-      onChange={onWorkspacePathChange ?? (() => undefined)}
-      placeholder={t("task:pickAStartingFolderOptional")}
-    />
-  );
-}
-
-function useMixedRepositoryActions(
-  fs: DialogFormState,
-  selectionCount: number,
-  isLocalExecutor: boolean,
-  onCreateRepository?: (key: string) => void,
-) {
-  const appendSelection = fs.appendRepositorySelection;
-  const addLocal = useCallback(
-    (choice: LocalRepositoryChoice) => {
-      fs.setNoRepository(false);
-      if (appendSelection) {
-        appendSelection(buildLocalRepositorySelection(choice, isLocalExecutor));
-        return;
-      }
-      fs.addRepository();
-    },
-    [appendSelection, fs.addRepository, fs.setNoRepository, isLocalExecutor],
-  );
-  const addRemote = useCallback(
-    (repository: RemoteRepository) => {
-      fs.setNoRepository(false);
-      if (!appendSelection) {
-        fs.addRemoteRepo();
-        return;
-      }
-      appendSelection({
-        kind: "remote",
-        url: repository.url,
-        branch: repository.defaultBranch,
-        source: "picker",
-        provider: repository.provider,
-        remoteUrl: repository.provider === "github" ? undefined : repository.url,
-        providerHost: repository.providerHost,
-        providerScope: repository.providerScope,
-        providerRepoId: repository.id,
-        providerOwner: repository.owner,
-        providerName: repository.name,
-        fullName: repository.fullName,
-      });
-    },
-    [appendSelection, fs.addRemoteRepo, fs.setNoRepository],
-  );
-  const addPastedRemote = useCallback(
-    (url: string) => {
-      fs.setNoRepository(false);
-      if (!appendSelection) {
-        fs.addRemoteRepo();
-        return;
-      }
-      appendSelection({ kind: "remote", url, branch: "", source: "paste" });
-    },
-    [appendSelection, fs.addRemoteRepo, fs.setNoRepository],
-  );
-  const openNewLocalRepository = useCallback(() => {
-    if (!appendSelection || !onCreateRepository) return;
-    fs.setNoRepository(false);
-    const key = appendSelection({ kind: "local", branch: "" });
-    onCreateRepository(key);
-  }, [appendSelection, fs.setNoRepository, onCreateRepository]);
-  const removeLocal = useCallback(
-    (key: string) => {
-      fs.removeRepository(key);
-      if (selectionCount === 1) fs.setNoRepository(true);
-    },
-    [fs.removeRepository, fs.setNoRepository, selectionCount],
-  );
-  const removeRemote = useCallback(
-    (key: string) => {
-      fs.removeRemoteRepo(key);
-      if (selectionCount === 1) fs.setNoRepository(true);
-    },
-    [fs.removeRemoteRepo, fs.setNoRepository, selectionCount],
-  );
-  return {
-    addLocal,
-    addRemote,
-    addPastedRemote,
-    openNewLocalRepository,
-    removeLocal,
-    removeRemote,
-  };
 }
 
 function LocalSelectionChip({

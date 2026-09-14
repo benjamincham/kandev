@@ -24,16 +24,10 @@ import {
 export function computeHasAllBranches(fs: DialogFormState): boolean {
   if (fs.noRepository) return true;
   if (fs.repositorySelections) {
-    const selected = fs.repositorySelections.filter((selection) =>
-      selection.kind === "remote"
-        ? selection.url.trim() !== ""
-        : Boolean(selection.repositoryId || selection.localPath),
-    );
+    const selected = fs.repositorySelections.filter(hasSelectedSourceValue);
     return (
       selected.length > 0 &&
-      selected.every((selection) =>
-        Boolean(selection.branch || (selection.kind === "local" && selection.baseBranch)),
-      ) &&
+      selected.every(hasSelectedSourceBranch) &&
       !hasUnavailablePickerRemoteProvider(selected, fs.remoteProviderReadiness)
     );
   }
@@ -44,6 +38,22 @@ export function computeHasAllBranches(fs: DialogFormState): boolean {
   return (
     fs.repositories.length > 0 && fs.repositories.every((r) => Boolean(r.baseBranch || r.branch))
   );
+}
+
+function hasSelectedSourceValue(
+  selection: NonNullable<DialogFormState["repositorySelections"]>[number],
+): boolean {
+  if (selection.kind === "remote") return selection.url.trim() !== "";
+  if (selection.kind === "folder") return Boolean(selection.localPath.trim());
+  return Boolean(selection.repositoryId || selection.localPath);
+}
+
+function hasSelectedSourceBranch(
+  selection: NonNullable<DialogFormState["repositorySelections"]>[number],
+): boolean {
+  if (selection.kind === "folder") return true;
+  if (selection.kind === "local") return Boolean(selection.branch || selection.baseBranch);
+  return Boolean(selection.branch);
 }
 
 export function localRepositoryCreationEnabled(isCreateMode: boolean, repoLocked: boolean) {

@@ -47,7 +47,10 @@ function row(key: string, repositoryIdValue?: string, branch = ""): TaskRepoRow 
   return { key, repositoryId: repositoryIdValue, branch };
 }
 
-function localSelection(key: string, repositoryIdValue: string): TaskRepositorySelection {
+function localSelection(
+  key: string,
+  repositoryIdValue: string,
+): Extract<TaskRepositorySelection, { kind: "local" }> {
   return { kind: "local", ...row(key, repositoryIdValue, "main") };
 }
 
@@ -73,7 +76,13 @@ describe("applyRepositorySet", () => {
       dirty: true,
     };
     const outcome = applyRepositorySet({
-      rows: [existingLocal],
+      rows: [
+        {
+          key: existingLocal.key,
+          repositoryId: existingLocal.repositoryId,
+          branch: existingLocal.branch,
+        },
+      ],
       set: repositorySet([REPO_WEB, REPO_GATEWAY]),
       repositories: AVAILABLE,
     });
@@ -85,7 +94,7 @@ describe("applyRepositorySet", () => {
       existingRemote,
       expect.objectContaining({ kind: "local", repositoryId: REPO_GATEWAY }),
     ]);
-    expect(next.selections[1]).toBe(existingRemote);
+    expect(next.selections[1]).toEqual(existingRemote);
   });
 
   it("adds one row per member in set order", () => {

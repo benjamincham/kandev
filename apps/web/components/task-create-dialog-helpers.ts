@@ -20,6 +20,7 @@ import { INTENT_PLAN } from "@/lib/state/layout-manager";
 import { createTask } from "@/lib/api";
 import type { FileAttachment } from "@/components/task/chat/file-attachment";
 import type { MessageAttachment } from "@/lib/services/session-launch-service";
+import type { WorkspaceSourceRequest } from "@/lib/types/http-workspace-sources";
 
 type CreateTaskParams = Parameters<typeof createTask>[0];
 type CreateTaskRepositoryPayload = NonNullable<CreateTaskParams["repositories"]>[number];
@@ -206,6 +207,8 @@ export type BuildCreatePayloadArgs = {
   trimmedDescription: string;
   autoTitle?: boolean;
   repositoriesPayload: CreateTaskParams["repositories"];
+  /** Presence-aware ordered source payload. `[]` represents explicit scratch. */
+  workspaceSourcesPayload?: CreateTaskParams["workspace_sources"];
   agentProfileId: string;
   executorId: string;
   executorProfileId: string;
@@ -221,29 +224,68 @@ export type BuildCreatePayloadArgs = {
 };
 
 export function buildCreateTaskPayload(args: BuildCreatePayloadArgs): CreateTaskParams {
-  return {
+  const commonPayload = {
     workspace_id: args.workspaceId,
     workflow_id: args.effectiveWorkflowId,
-    ...(args.autoTitle ? { auto_title: true } : { title: args.trimmedTitle }),
     description: args.trimmedDescription,
-    repositories: args.repositoriesPayload,
-    state: args.withAgent ? "IN_PROGRESS" : "CREATED",
-    start_agent: args.withAgent ? true : undefined,
-    prepare_session: args.withAgent ? undefined : true,
-    agent_profile_id: args.agentProfileId || undefined,
-    executor_id: args.executorId || undefined,
-    executor_profile_id: args.executorProfileId || undefined,
-    plan_mode: args.planMode || undefined,
+    ...createTaskSourceFields(args),
+    ...createTaskStateFields(args.withAgent),
+    ...createTaskOptionalFields(args),
     attachments: args.attachments,
-    parent_id: args.parentId || undefined,
-    workspace_path: args.workspacePath || undefined,
-    autopilot: args.autopilot || undefined,
     priority: args.priority ?? "medium",
-    // Dependencies declared at creation time. With edges present the backend
-    // records the requested agent start as a start-when-unblocked intent rather
-    // than launching now, so a chain runs in order instead of all at once.
-    blocked_by: args.blockedBy && args.blockedBy.length > 0 ? args.blockedBy : undefined,
+    blocked_by: taskCreateDependencies(args.blockedBy),
   };
+  if (args.autoTitle) return { ...commonPayload, auto_title: true };
+  return { ...commonPayload, title: args.trimmedTitle };
+}
+
+function createTaskSourceFields(
+  args: BuildCreatePayloadArgs,
+): Pick<CreateTaskParams, "workspace_sources" | "repositories" | "workspace_path"> {
+  if (args.workspaceSourcesPayload !== undefined) {
+    return { workspace_sources: args.workspaceSourcesPayload };
+  }
+  return {
+    repositories: args.repositoriesPayload,
+    workspace_path: optionalTaskValue(args.workspacePath),
+  };
+}
+
+function createTaskStateFields(
+  withAgent: boolean,
+): Pick<CreateTaskParams, "state" | "start_agent" | "prepare_session"> {
+  if (withAgent) return { state: "IN_PROGRESS", start_agent: true };
+  return { state: "CREATED", prepare_session: true };
+}
+
+function createTaskOptionalFields(
+  args: BuildCreatePayloadArgs,
+): Pick<
+  CreateTaskParams,
+  | "agent_profile_id"
+  | "executor_id"
+  | "executor_profile_id"
+  | "plan_mode"
+  | "parent_id"
+  | "autopilot"
+> {
+  return {
+    agent_profile_id: optionalTaskValue(args.agentProfileId),
+    executor_id: optionalTaskValue(args.executorId),
+    executor_profile_id: optionalTaskValue(args.executorProfileId),
+    plan_mode: optionalTaskValue(args.planMode),
+    parent_id: optionalTaskValue(args.parentId),
+    autopilot: optionalTaskValue(args.autopilot),
+  };
+}
+
+function optionalTaskValue<T>(value: T | null | undefined): T | undefined {
+  return value || undefined;
+}
+
+function taskCreateDependencies(blockedBy: string[] | undefined): string[] | undefined {
+  if (blockedBy && blockedBy.length > 0) return blockedBy;
+  return undefined;
 }
 
 export function validateCreateInputs(inputs: {
@@ -265,13 +307,7 @@ export function validateCreateInputs(inputs: {
 }): boolean {
   const selections =
     inputs.selections ?? resolveLegacySelections(inputs.repositories, inputs.remoteRepos ?? []);
-  const hasRepo =
-    inputs.noRepository ||
-    selections.some((selection) =>
-      selection.kind === "remote"
-        ? selection.url.trim() !== ""
-        : Boolean(selection.repositoryId || selection.localPath),
-    );
+  const hasRepo = Boolean(inputs.noRepository || selections.some(selectionHasValue));
   if (
     !inputs.noRepository &&
     hasUnavailablePickerRemoteProvider(selections, inputs.remoteProviderReadiness)
@@ -295,6 +331,12 @@ function resolveLegacySelections(
     ...repositories.map((row) => ({ kind: "local" as const, ...row })),
     ...remoteRepos.map((row) => ({ kind: "remote" as const, ...row })),
   ];
+}
+
+function selectionHasValue(selection: TaskRepositorySelection): boolean {
+  if (selection.kind === "remote") return selection.url.trim() !== "";
+  if (selection.kind === "folder") return Boolean(selection.localPath.trim());
+  return Boolean(selection.repositoryId || selection.localPath);
 }
 
 /**
@@ -424,12 +466,72 @@ function buildMixedRepositoryPayload(
     : {};
   const isLocalExecutor = !!opts.isLocalExecutor && !opts.freshBranch;
   return selections.flatMap((selection) => {
+    if (selection.kind === "folder") return [];
     if (selection.kind === "remote") {
       return selection.url.trim() ? [buildRemoteRepoPayloadRow(selection, opts.prInfoByUrl)] : [];
     }
     if (!selection.repositoryId && !selection.localPath) return [];
     return [buildLocalRepositoryPayloadRow(selection, opts, fresh, isLocalExecutor)];
   });
+}
+
+/** Builds the ordered, tagged source payload used by the new task-creation contract. */
+export function buildWorkspaceSourcesPayload(
+  opts: Parameters<typeof buildRepositoriesPayload>[0],
+): WorkspaceSourceRequest[] {
+  const selections =
+    opts.selections ?? resolveLegacySelections(opts.repositories, opts.remoteRepos);
+  const fresh = opts.freshBranch
+    ? {
+        fresh_branch: true,
+        confirm_discard: opts.freshBranch.confirmDiscard,
+        consented_dirty_files: opts.freshBranch.consentedDirtyFiles,
+      }
+    : {};
+  const isLocalExecutor = !!opts.isLocalExecutor && !opts.freshBranch;
+  return selections.flatMap((selection): WorkspaceSourceRequest[] => {
+    if (selection.kind === "folder") {
+      const localPath = selection.localPath.trim();
+      if (!localPath) return [];
+      return [
+        {
+          kind: "folder" as const,
+          local_path: localPath,
+          ...(selection.displayName ? { display_name: selection.displayName } : {}),
+        },
+      ];
+    }
+    if (selection.kind === "remote") {
+      if (!selection.url.trim()) return [];
+      const repository = buildRemoteRepoPayloadRow(selection, opts.prInfoByUrl);
+      return [workspaceRepositorySource(repository)];
+    }
+    if (!selection.repositoryId && !selection.localPath) return [];
+    const repository = buildLocalRepositoryPayloadRow(selection, opts, fresh, isLocalExecutor);
+    return [workspaceRepositorySource(repository)];
+  });
+}
+
+function workspaceRepositorySource(
+  repository: CreateTaskRepositoryPayload,
+): WorkspaceSourceRequest & { kind: "repository" } {
+  return {
+    kind: "repository",
+    ...(repository.repository_id ? { repository_id: repository.repository_id } : {}),
+    ...(repository.local_path ? { local_path: repository.local_path } : {}),
+    ...(repository.github_url ? { github_url: repository.github_url } : {}),
+    ...(repository.remote_url ? { remote_url: repository.remote_url } : {}),
+    ...(repository.provider ? { provider: repository.provider } : {}),
+    ...(repository.provider_host ? { provider_host: repository.provider_host } : {}),
+    ...(repository.provider_scope ? { provider_scope: repository.provider_scope } : {}),
+    ...(repository.provider_repo_id ? { provider_repo_id: repository.provider_repo_id } : {}),
+    ...(repository.provider_owner ? { provider_owner: repository.provider_owner } : {}),
+    ...(repository.provider_name ? { provider_name: repository.provider_name } : {}),
+    ...(repository.base_branch ? { base_branch: repository.base_branch } : {}),
+    ...(repository.checkout_branch ? { checkout_branch: repository.checkout_branch } : {}),
+    ...(repository.branch_policy_id ? { branch_policy_id: repository.branch_policy_id } : {}),
+    ...(repository.pr_number ? { pr_number: repository.pr_number } : {}),
+  };
 }
 
 function buildLocalRepositoryPayloadRow(
@@ -440,7 +542,10 @@ function buildLocalRepositoryPayloadRow(
 ): CreateTaskRepositoryPayload {
   const defaultBranch = resolveRowDefaultBranch(row, opts);
   const branches = splitLocalExecutorBranches({
-    rowBranch: row.branch,
+    // Restored local sources can carry both the branch checked out on the
+    // host and the saved integration base. Worktree-backed executors use the
+    // base while direct local execution keeps the checkout branch.
+    rowBranch: isLocalExecutor ? row.branch : row.baseBranch || row.branch,
     defaultBranch,
     // Fresh-branch mode uses row.branch as the fork base. A saved set base
     // is checkout metadata for the ordinary local-executor flow and must

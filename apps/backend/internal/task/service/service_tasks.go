@@ -260,8 +260,9 @@ func (s *Service) CreateTask(ctx context.Context, req *CreateTaskRequest) (Creat
 // whole point: a reference that does not resolve must fail while there is
 // still no task row to strand.
 type preparedTask struct {
-	task         *models.Task
-	repositories []*models.TaskRepository
+	task                 *models.Task
+	repositories         []*models.TaskRepository
+	workspaceSourceBatch *models.WorkspaceSourceBatch
 }
 
 // prepareTaskForCreation runs create-sequence steps 4-5's non-write half:
@@ -279,6 +280,9 @@ func (s *Service) prepareTaskForCreation(ctx context.Context, req *CreateTaskReq
 		return nil, err
 	}
 	if err := s.prepareWorkspacePolicyForCreation(ctx, req); err != nil {
+		return nil, err
+	}
+	if err := normalizeWorkspaceSourcesForCreation(req); err != nil {
 		return nil, err
 	}
 
@@ -360,7 +364,14 @@ func (s *Service) resolveTaskCreationReferences(
 	if err != nil {
 		return nil, err
 	}
-	return &preparedTask{task: task, repositories: repositories}, nil
+	if req.WorkspaceSources == nil {
+		return &preparedTask{task: task, repositories: repositories}, nil
+	}
+	batch, err := s.prepareWorkspaceSourceBatchForCreation(ctx, task, *req.WorkspaceSources, repositories)
+	if err != nil {
+		return nil, err
+	}
+	return &preparedTask{task: task, repositories: repositories, workspaceSourceBatch: batch}, nil
 }
 
 func (s *Service) prepareContributionDestination(ctx context.Context, req *CreateTaskRequest) error {
@@ -419,7 +430,7 @@ func (s *Service) finalizeCreatedTask(ctx context.Context, prepared *preparedTas
 		}
 	}
 
-	if err := s.persistTaskRepositoryRows(ctx, task.ID, prepared.repositories); err != nil {
+	if err := s.persistPreparedWorkspace(ctx, task.ID, prepared); err != nil {
 		return CreateTaskResult{}, s.rollbackPartialTask(ctx, task.ID, err)
 	}
 	if req.WorkspacePolicy != nil && req.WorkspacePolicy.NeedsAttachment() {
@@ -439,6 +450,7 @@ func (s *Service) finalizeCreatedTask(ctx context.Context, prepared *preparedTas
 	} else {
 		task.Repositories = repos
 	}
+	s.hydrateTaskWorkspaceFolders(ctx, task)
 
 	s.publishTaskEventWithExtra(ctx, events.TaskCreated, task, nil,
 		map[string]interface{}{
@@ -450,11 +462,26 @@ func (s *Service) finalizeCreatedTask(ctx context.Context, prepared *preparedTas
 		s.logger.Warn("failed to refresh task after feeder pull", zap.String("task_id", task.ID), zap.Error(err))
 	} else if refreshed != nil {
 		refreshed.Repositories = task.Repositories
+		refreshed.WorkspaceFolders = task.WorkspaceFolders
 		task = refreshed
 	}
 	s.logger.Info("task created", zap.String("task_id", task.ID), zap.String("title", task.Title))
 
 	return CreateTaskResult{Task: task, Outcome: CreateTaskOutcomeCreated}, nil
+}
+
+func (s *Service) persistPreparedWorkspace(ctx context.Context, taskID string, prepared *preparedTask) error {
+	if prepared.workspaceSourceBatch == nil {
+		return s.persistTaskRepositoryRows(ctx, taskID, prepared.repositories)
+	}
+	if len(prepared.workspaceSourceBatch.Sources) == 0 {
+		return nil
+	}
+	store := s.workspaceSourceStore()
+	if store == nil {
+		return fmt.Errorf("%w: workspace source persistence is unavailable", ErrWorkspaceSourceMaterialize)
+	}
+	return store.CreateWorkspaceSourceBatch(ctx, prepared.workspaceSourceBatch)
 }
 
 // assignmentGenerationForCreate mirrors insertTaskTx's runner-row guard in
@@ -719,7 +746,7 @@ func (s *Service) resolveAdmissionFeeder(ctx context.Context, step *wfmodels.Wor
 // reintroduce the exact fresh-worktree bug this inheritance is meant to fix —
 // failing fast surfaces the problem at creation time instead.
 func (s *Service) inheritParentRepositories(ctx context.Context, req *CreateTaskRequest) error {
-	if req.ParentID == "" || len(req.Repositories) > 0 {
+	if req.ParentID == "" || req.WorkspaceSources != nil || len(req.Repositories) > 0 {
 		return nil
 	}
 	parentRepos, err := s.taskRepos.ListTaskRepositories(ctx, req.ParentID)

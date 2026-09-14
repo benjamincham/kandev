@@ -5,7 +5,7 @@ import { createTask } from "@/lib/api/domains/kanban-api";
 import { replaceTaskUrl } from "@/lib/links";
 import { useAppStore } from "@/components/state-provider";
 import {
-  buildRepositoriesPayload,
+  buildWorkspaceSourcesPayload,
   hasPendingAttachmentUploads,
   toMessageAttachments,
 } from "@/components/task-create-dialog-helpers";
@@ -96,10 +96,10 @@ async function createSubtask({
   setActiveTask,
   setActiveSession,
 }: CreateSubtaskArgs) {
-  const repositories =
+  const workspaceSources =
     workspaceMode === "inherit_parent"
       ? undefined
-      : buildRepositoriesPayload({
+      : buildWorkspaceSourcesPayload({
           selections: fs.repositorySelections,
           useRemote: fs.useRemote,
           remoteRepos: fs.remoteRepos,
@@ -117,7 +117,7 @@ async function createSubtask({
     workflow_id: workflowId,
     ...(autoTitle ? { auto_title: true } : { title: trimmedTitle }),
     description: prompt,
-    repositories,
+    ...(workspaceSources !== undefined ? { workspace_sources: workspaceSources } : {}),
     start_agent: true,
     agent_profile_id: fs.agentProfileId || defaultProfileId || undefined,
     executor_profile_id:

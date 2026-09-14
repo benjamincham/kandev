@@ -30,7 +30,8 @@ const (
 type WorkspaceSourceInput struct {
 	Kind                                                                                                                              WorkspaceSourceKind
 	RepositoryID, LocalPath, GitHubURL, RemoteURL, Provider, ProviderHost, ProviderScope, ProviderRepoID, ProviderOwner, ProviderName string
-	BaseBranch, CheckoutBranch, DisplayName                                                                                           string
+	BaseBranch, CheckoutBranch, BranchPolicyID, DisplayName                                                                           string
+	PRNumber                                                                                                                          int
 }
 
 type AttachWorkspaceSourcesRequest struct {

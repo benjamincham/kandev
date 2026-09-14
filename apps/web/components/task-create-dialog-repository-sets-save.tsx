@@ -73,8 +73,7 @@ export function SaveRepositorySetDialog({
   // A row that names a discovered local path, a remote URL, or nothing at all is
   // not a workspace repository, so it cannot be a member.
   const excludedRowCount = selections
-    ? selections.filter((selection) => selection.kind === "remote" || !selection.repositoryId)
-        .length
+    ? selections.filter((selection) => selection.kind !== "local" || !selection.repositoryId).length
     : rows.filter((row) => !row.repositoryId).length;
   const duplicateRowCount =
     (selections?.length ?? rows.length) - excludedRowCount - repositoryIds.length;

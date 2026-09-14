@@ -14,6 +14,7 @@ import type {
   TaskRemoteRepoRow,
   TaskRepoRow,
   TaskRepositorySelection,
+  TaskWorkspaceFolderSelection,
 } from "@/components/task-create-dialog-types";
 
 export type RepositorySelectionState = {
@@ -26,7 +27,8 @@ export type RepositorySelectionState = {
 
 export type NewRepositorySelection =
   | Omit<Extract<TaskRepositorySelection, { kind: "local" }>, "key">
-  | Omit<Extract<TaskRepositorySelection, { kind: "remote" }>, "key">;
+  | Omit<Extract<TaskRepositorySelection, { kind: "remote" }>, "key">
+  | Omit<TaskWorkspaceFolderSelection, "key">;
 
 type SelectionUpdater<T> = T[] | ((rows: T[]) => T[]);
 
@@ -37,6 +39,7 @@ export type RepositorySelectionAction =
   | { type: "set-local"; rows: SelectionUpdater<TaskRepoRow> }
   | { type: "hydrate-local"; rows: SelectionUpdater<TaskRepoRow> }
   | { type: "set-remote"; rows: SelectionUpdater<TaskRemoteRepoRow> }
+  | { type: "set-folders"; rows: SelectionUpdater<TaskWorkspaceFolderSelection> }
   | { type: "set-dirty"; dirty: boolean }
   | { type: "hydrate"; selections: TaskRepositorySelection[] }
   | { type: "reset"; selections: TaskRepositorySelection[] };
@@ -100,6 +103,12 @@ export function repositorySelectionReducer(
     return replaceKind(state, "local", rows, false);
   }
 
+  if (action.type === "set-folders") {
+    const current = state.selections.filter(isFolderSelection);
+    const rows = resolveSelectionUpdater(action.rows, current);
+    return replaceKind(state, "folder", rows);
+  }
+
   const current = state.selections.filter((selection) => selection.kind === "remote");
   const rows = resolveSelectionUpdater(action.rows, current);
   return replaceKind(state, "remote", rows);
@@ -112,7 +121,7 @@ function resolveSelectionUpdater<T>(updater: SelectionUpdater<T>, current: T[]):
 function replaceKind(
   state: RepositorySelectionState,
   kind: TaskRepositorySelection["kind"],
-  rows: TaskRepoRow[] | TaskRemoteRepoRow[],
+  rows: Array<TaskRepoRow | TaskRemoteRepoRow | TaskWorkspaceFolderSelection>,
   markChanged = true,
 ): RepositorySelectionState {
   const rowsByKey = new Map(rows.map((row) => [row.key, row]));
@@ -160,6 +169,10 @@ export function useRepositorySelectionState() {
     () => state.selections.filter(isRemoteSelection).map(stripSelectionKind),
     [state.selections],
   );
+  const workspaceFolders = useMemo(
+    () => state.selections.filter(isFolderSelection).map(stripSelectionKind),
+    [state.selections],
+  );
 
   return {
     repositorySelections: state.selections,
@@ -169,6 +182,7 @@ export function useRepositorySelectionState() {
     repositoriesDirty: state.dirty,
     ...stateActions,
     remoteRepos,
+    workspaceFolders,
   };
 }
 
@@ -178,7 +192,7 @@ function useRepositorySelectionRowActions(
   nextKeyRef: MutableRefObject<number>,
 ) {
   const allocateKey = useCallback(
-    (prefix: "row" | "remote") => {
+    (prefix: "row" | "remote" | "folder") => {
       let key = "";
       const taken = new Set(state.selections.map((selection) => selection.key));
       do {
@@ -226,6 +240,14 @@ function useRepositorySelectionRowActions(
       },
     });
   }, [allocateKey, dispatch]);
+  const appendFolderSelection = useCallback(
+    (selection: Omit<TaskWorkspaceFolderSelection, "key">) => {
+      const key = allocateKey("folder");
+      dispatch({ type: "append", selection: { ...selection, key } });
+      return key;
+    },
+    [allocateKey, dispatch],
+  );
   const removeRepository = useCallback(
     (key: string) => dispatch({ type: "remove", key }),
     [dispatch],
@@ -242,7 +264,24 @@ function useRepositorySelectionRowActions(
     },
     [dispatch, state.selections],
   );
-  const updateRemoteRepo = useCallback(
+  const updateRemoteRepo = useUpdateRemoteRepo(state, dispatch);
+  return {
+    addRepository,
+    appendRepositorySelection,
+    addRemoteRepo,
+    appendFolderSelection,
+    removeRepository,
+    removeRemoteRepo,
+    updateRepository,
+    updateRemoteRepo,
+  };
+}
+
+function useUpdateRemoteRepo(
+  state: RepositorySelectionState,
+  dispatch: Dispatch<RepositorySelectionAction>,
+) {
+  return useCallback(
     (key: string, patch: Partial<TaskRemoteRepoRow>) => {
       const selection = state.selections.find((candidate) => candidate.key === key);
       if (!selection || selection.kind !== "remote") return;
@@ -254,15 +293,6 @@ function useRepositorySelectionRowActions(
     },
     [dispatch, state.selections],
   );
-  return {
-    addRepository,
-    appendRepositorySelection,
-    addRemoteRepo,
-    removeRepository,
-    removeRemoteRepo,
-    updateRepository,
-    updateRemoteRepo,
-  };
 }
 
 function useRepositorySelectionStateActions(dispatch: Dispatch<RepositorySelectionAction>) {
@@ -276,6 +306,11 @@ function useRepositorySelectionStateActions(dispatch: Dispatch<RepositorySelecti
   );
   const setRemoteRepos = useCallback(
     (rows: SelectionUpdater<TaskRemoteRepoRow>) => dispatch({ type: "set-remote", rows }),
+    [dispatch],
+  );
+  const setWorkspaceFolders = useCallback(
+    (rows: SelectionUpdater<TaskWorkspaceFolderSelection>) =>
+      dispatch({ type: "set-folders", rows }),
     [dispatch],
   );
   const setRepositoriesDirty = useCallback(
@@ -294,6 +329,7 @@ function useRepositorySelectionStateActions(dispatch: Dispatch<RepositorySelecti
     setRepositories,
     hydrateRepositories,
     setRemoteRepos,
+    setWorkspaceFolders,
     setRepositoriesDirty,
     resetRepositorySelections,
     hydrateRepositorySelections,
@@ -310,6 +346,12 @@ function isRemoteSelection(
   selection: TaskRepositorySelection,
 ): selection is Extract<TaskRepositorySelection, { kind: "remote" }> {
   return selection.kind === "remote";
+}
+
+function isFolderSelection(
+  selection: TaskRepositorySelection,
+): selection is Extract<TaskRepositorySelection, { kind: "folder" }> {
+  return selection.kind === "folder";
 }
 
 function stripSelectionKind<T extends TaskRepositorySelection>(selection: T): Omit<T, "kind"> {

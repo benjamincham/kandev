@@ -5,7 +5,9 @@ requirements:
   - REQ-TASKS-MIXED-REPOSITORIES-001
   - REQ-TASKS-MIXED-REPOSITORIES-002
   - REQ-TASKS-MIXED-REPOSITORIES-003
-updated: 2026-09-13
+  - REQ-TASKS-MIXED-REPOSITORIES-004
+  - REQ-TASKS-MIXED-REPOSITORIES-005
+updated: 2026-09-14
 ---
 
 # Mixed Repository Selection System Design
@@ -26,6 +28,8 @@ by integrations and plugins. Sets remain owned by workspaces.
 | REQ-TASKS-MIXED-REPOSITORIES-001 | Ordered draft, Submission, Defaults and compatibility |
 | REQ-TASKS-MIXED-REPOSITORIES-002 | Provider eligibility, Picker, Failure and recovery |
 | REQ-TASKS-MIXED-REPOSITORIES-003 | Consumers and sets, Mobile composition, Verification |
+| REQ-TASKS-MIXED-REPOSITORIES-004 | Creation extension: draft and transport, persistence and first launch, shared UI |
+| REQ-TASKS-MIXED-REPOSITORIES-005 | Creation extension: last-used state |
 
 ## Current implementation
 
@@ -43,7 +47,8 @@ by integrations and plugins. Sets remain owned by workspaces.
   availability results by workspace and registration generation.
 - `Service.resolveTaskRepositoryRows` in `internal/task/service/service_tasks.go`
   accepts mixed per-row locators. `repository_selection.go` preflights plugin
-  inspection before writes. No task wire schema change is required.
+  inspection before writes. The completed repository-only change required no
+  wire schema change; the folder creation extension below adds optional input.
 
 ## Ordered draft
 
@@ -155,8 +160,10 @@ Preserve backend-owned task-create preferences under ADR 0028. The initial
 defaulting path runs only for an untouched draft. A deliberate final removal
 must survive late repository discovery and user-settings responses.
 
-Zero rows selects the existing scratch/folder path. Preserve the optional local
-folder control and existing worktree-to-local fallback for scratch tasks.
+Zero contents selects scratch. Folder rows coexist with repositories through the
+creation extension below; the former exclusive optional-folder UI is retired.
+Retain the existing Worktree-to-Local fallback when deriving an empty/folder-only
+default, without silently changing an explicitly chosen executor.
 With non-empty input, disable incompatible creation using the existing executor
 capability guard and show its reason. Do not expand executor support.
 
@@ -189,10 +196,12 @@ Use `useTouchDrawer` or `useResponsiveBreakpoint` and the interaction demonstrat
 `components/task/mobile/mobile-picker-sheet.tsx`. Extract a neutral shell if
 needed rather than importing task-session business state into task creation.
 
-The form has a `Repositories (N)` control. It opens an inset bottom drawer with
-selected rows and an Add action. Add navigates to tabs/search within the same
-drawer. Branch and URL selection use sibling subviews with a Back action.
-Done closes the drawer and returns focus. Desktop branch popovers stay compact.
+The form shows stacked contents on phones and wrapping chips on desktop. Add uses
+`+ Add Repository/Folder` when empty and `+ Add` otherwise. On phones it opens one
+bottom drawer containing the three-choice menu; repository, folder, set, branch,
+and URL views navigate within that drawer through Back. Desktop uses an anchored
+menu replaced by the selected picker. Folder browsing reuses the existing host
+filesystem service and native desktop folder dialog where available.
 
 The header, tabs, and search remain fixed. One list owns vertical scrolling.
 The footer clears the safe area. Height uses dynamic viewport units and must
@@ -233,3 +242,128 @@ Rendered checks include keyboard focus, labeled tabs, overflow, and touch geomet
 - [Server-owned plugin resolution](../../../decisions/2026-08-26-server-owned-plugin-repository-task-resolution.md)
 - [Repository sets](../../workspaces/system-design/repository-sets.md)
 - [Requirements](../requirements/mixed-repository-selection.md)
+
+## Creation extension: folders and unified contents
+
+This section describes the implemented extension for requirements 004 and 005.
+Tasks owns input, persistence, and restoration. Existing runtime
+workspace-source materialization owns host
+links and source boundaries. Workspaces still owns repository sets.
+
+### Draft and transport
+
+Use the implemented `TaskWorkspaceSelection` union, with the existing
+`TaskRepositorySelection` compatibility alias: local/remote repository variants
+plus `{kind: "folder", key, localPath, displayName?}`. Preserve row keys and
+repository source metadata. Derived repository projections exclude folders;
+Git queries, provider checks, and fresh-branch rules operate only on repositories.
+Scratch is derived from an explicitly empty contents list, not from a second mode
+boolean or the absence of repositories alone. Set expansion uses the same append
+reducer and never serializes folder rows as repositories.
+
+Add optional `workspace_sources` to HTTP and WS create input, with tagged
+`repository` and `folder` entries compatible with `WorkspaceSourceInput` in
+`service_workspace_sources.go`. Repository entries retain existing locator and
+branch fields; folder entries carry host `local_path` and optional `display_name`.
+Use presence-aware decoding: absent means legacy input, while `[]` means explicit
+scratch and suppresses implicit parent repository inheritance in editable new
+workspace mode. A locked reuse-parent mode must reject conflicting explicit input.
+Reject requests combining the new field with legacy `repositories` or
+`workspace_path`, rather than guessing which wins. Legacy callers keep their
+current semantics, including omitted subtask inheritance and single-folder CWD.
+Do not add a required field to unrelated MCP or provider-created callers.
+
+Normalize both protocols before task preparation. New clients submit one ordered
+array. Existing response `repositories` and `workspace_folders` retain their shapes;
+merge their shared `position` values to recover source order. The first repository,
+not the first folder, remains the primary repository for repository-only consumers.
+
+### Persistence and first launch
+
+Extend `preparedTask`, `prepareTaskForCreation`, and finalization in `service_tasks.go` to
+prepare folder and repository sources before publishing `task.created` or starting
+an agent. Reuse folder canonicalization and name validation from
+`prepareFolderWorkspaceSource`; reuse server-owned repository inspection. Do not
+implement creation as create-then-call `AttachWorkspaceSources`: that API requires
+a repository-backed idle task and can expose partial startup.
+
+`TaskWorkspaceFolder`, `WorkspaceSourceBatch`, and SQLite
+`CreateWorkspaceSourceBatch` already provide durable folders and one position
+sequence across repositories and folders. Reuse this storage rather than a second
+folder table. Ensure the task and complete source batch cannot become launchable
+until required writes finish. Extend the existing creation rollback path for batch
+write failures; do not delete pre-existing repositories or user directories.
+Validate all input first, retaining existing server inspection cleanup guarantees.
+No schema migration was required because the existing source tables and shared
+position sequence already cover creation-time folders and repositories.
+
+Carry persisted folders into the existing `WorkspaceInfo.WorkspaceFolders` and
+`workspace_sources_reconcile.go` flow on initial launch, restart, and retry. Audit
+repository-count early returns in lifecycle `manager_launch.go` and
+`manager_execution.go`: multiple folder-only sources need a managed root despite
+having no primary repository. One folder alone retains direct host CWD semantics.
+Mixed inputs use named sibling links under a Kandev-owned root; repository worktrees
+retain existing preparation. Never place generated siblings inside user folders.
+Files and agent context must expose all sources before the first turn. Task cleanup
+removes owned links/root only, never the linked folders. Use existing ownership
+markers and fail closed on conflicting entries.
+
+Host folders remain Local/Worktree-only, consistent with attachment capability.
+Keep repository-count constraints separate from total source count. Container and
+remote execution cannot accept folders: show Local Folder disabled with a reason
+in the creation menu and reject forged requests. A draft retains incompatible
+rows when the executor changes. No host-to-remote copying or new Local multi-repo
+capability is introduced.
+
+### Last-used state
+
+Extend backend `TaskCreateLastUsed` with a
+`workspace_sources_by_workspace` map. Presence of a workspace entry, including an
+empty array, is meaningful. Values are full replayable source descriptors and
+branch/policy choices from successful normalized creation, not row keys, runtime
+worktree paths, credentials, PR fetch caches, or transient errors. Preserve source
+provenance so restored connection-dependent remote rows still use health gating.
+Branch policy snapshots must remain compatible with the current preset adapter.
+
+Update `buildTaskCreateLastUsedPatch` / `recordTaskCreateLastUsed`, the WS caller,
+user model/DTO/store, boot/settings projection, and frontend settings types.
+Retain ADR 0028 and [ADR 0041](../../../decisions/0041-backend-owned-portable-user-settings.md): the backend is the durable authority; targeted JSON
+updates must preserve concurrent unrelated settings and other workspace entries.
+Continue the existing workflow-by-workspace and agent/executor preference rules.
+Save only after successful task creation and persist explicit empty snapshots.
+Preference-write failure uses existing logging/recovery; it must not duplicate
+an already-created task.
+
+Hydration precedence: locked/inherited context or explicit preset, current user
+edits, current-workspace snapshot, then legacy eligible defaults. Missing snapshot
+and explicit empty snapshot must remain distinct through Go JSON, DTO, boot,
+Zustand, and reducer layers. Untouched-only hydration rechecks at application
+time; asynchronous results never repopulate a cleared draft. Revalidate restored
+paths, repository identities, branches, and connections without erasing invalid
+rows. Do not persist a UI fallback until a task actually succeeds.
+
+### Shared UI and bottom helper
+
+Replace exclusive folder controls and standalone Sets entry points in New Task
+and editable New Subtask with one Add menu. Repository uses the existing readiness
+picker. FolderPicker needs a reusable controlled browser body for same-sheet
+navigation; retain native desktop selection and cancellation semantics. Repository
+Set uses the existing set selector and registered-ID storage. Saving a set remains
+available through its existing management affordance; folders remain excluded.
+
+The existing executor explanation in `task-create-dialog-options.tsx` owns the
+scratch sentence. Derive helper content from effective executor and complete
+source composition. Empty means scratch, one folder means live folder CWD, mixed
+contents means shared workspace root, and repository-only preserves existing hints.
+Never render the scratch sentence or an empty repo placeholder in the top area.
+All labels and errors use five locale catalogs. The combined ASCII previews and
+mobile scroll/focus contract are in the new plan and its UI work orders.
+
+### Verification and related implementation
+
+Requirement 004 maps to creation persistence/runtime tests and desktop/phone Add
+flows. Requirement 005 maps to preference CAS, transport, hydration, and reopen
+flows. See the [workspace contents plan](../../../plans/workspace-contents-creation/plan.md).
+The completed mixed-repository package retains its historical evidence; it does
+not prove this extension. Reuse the [attachment design](attach-workspace-sources.md)
+and [runtime source decision](../../../decisions/2026-07-22-runtime-mutable-task-workspace-sources.md).

@@ -4,11 +4,11 @@ import { useCallback, useRef, useState } from "react";
 import { IconGitFork } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@kandev/ui/tooltip";
-import type { Repository, RepositorySet } from "@/lib/types/http";
+import type { Repository } from "@/lib/types/http";
 import type {
   DialogFormState,
   TaskRepoRow,
-  TaskRepositorySelection,
+  TaskRepositorySetsConfig,
 } from "@/components/task-create-dialog-types";
 import { RemoteRepoChipsRow } from "@/components/task-create-dialog-remote-repo-chips";
 import { FolderPicker } from "@/components/folder-picker";
@@ -78,21 +78,7 @@ type RepoChipsRowProps = {
    * with one line, and Quick Chat - which renders WorkspaceRepoChips directly -
    * is untouched.
    */
-  repositorySets?: {
-    sets: RepositorySet[];
-    onApply: (set: RepositorySet) => void;
-    /** Present when the current selection can be saved as a new set. */
-    save?: {
-      workspaceId: string;
-      rows: TaskRepoRow[];
-      repositories: Repository[];
-      isLocalExecutor: boolean;
-      freshBranchEnabled: boolean;
-      selections?: TaskRepositorySelection[];
-      open: boolean;
-      setOpen: (open: boolean) => void;
-    } | null;
-  };
+  repositorySets?: TaskRepositorySetsConfig;
 };
 
 function applyRowBranchChange(
@@ -268,15 +254,7 @@ function MixedRepositorySurface({
         repositoryCreationOpen={creation.target !== null}
         onRefreshRepositories={onRefreshRepositories}
         repositoriesRefreshing={repositoriesRefreshing}
-        repositorySets={
-          repositorySets && !repositoryLocked && !branchLocked ? (
-            <RepositorySetsSurface
-              repositorySets={repositorySets}
-              repositories={repositories}
-              rows={fs.repositories}
-            />
-          ) : null
-        }
+        repositorySets={repositoryLocked || branchLocked ? undefined : repositorySets}
       />
       <LocalRepositoryCreationSurface
         creation={localRepositoryCreation}

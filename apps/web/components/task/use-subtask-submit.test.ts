@@ -51,6 +51,7 @@ vi.mock("@/components/state-provider", () => ({
 
 vi.mock("@/components/task-create-dialog-helpers", () => ({
   buildRepositoriesPayload: vi.fn(() => []),
+  buildWorkspaceSourcesPayload: vi.fn(() => []),
   hasPendingAttachmentUploads: (...args: Parameters<typeof mockHasPendingAttachmentUploads>) =>
     mockHasPendingAttachmentUploads(...args),
   toMessageAttachments: vi.fn(() => []),
@@ -324,7 +325,7 @@ describe("useSubtaskSubmit", () => {
   });
 
   it("passes fresh-branch metadata when a local executor uses a policy row", async () => {
-    const buildRepositoriesPayload = await import("@/components/task-create-dialog-helpers");
+    const builders = await import("@/components/task-create-dialog-helpers");
     const opts = makeSubmitOptions({
       isLocalExecutor: true,
       fs: {
@@ -351,7 +352,7 @@ describe("useSubtaskSubmit", () => {
       await result.current.handleSubmit({ preventDefault: vi.fn() } as never);
     });
 
-    expect(buildRepositoriesPayload.buildRepositoriesPayload).toHaveBeenCalledWith(
+    expect(builders.buildWorkspaceSourcesPayload).toHaveBeenCalledWith(
       expect.objectContaining({
         isLocalExecutor: true,
         freshBranch: { confirmDiscard: false, consentedDirtyFiles: [] },
@@ -360,7 +361,7 @@ describe("useSubtaskSubmit", () => {
   });
 
   it("drops stale fresh-branch metadata after a second local row is added", async () => {
-    const buildRepositoriesPayload = await import("@/components/task-create-dialog-helpers");
+    const builders = await import("@/components/task-create-dialog-helpers");
     const opts = makeSubmitOptions({
       isLocalExecutor: true,
       fs: {
@@ -384,7 +385,7 @@ describe("useSubtaskSubmit", () => {
       await result.current.handleSubmit({ preventDefault: vi.fn() } as never);
     });
 
-    expect(buildRepositoriesPayload.buildRepositoriesPayload).toHaveBeenCalledWith(
+    expect(builders.buildWorkspaceSourcesPayload).toHaveBeenCalledWith(
       expect.not.objectContaining({ freshBranch: expect.anything() }),
     );
   });
@@ -415,7 +416,7 @@ describe("useSubtaskSubmit", () => {
   });
 
   it("passes the ordered mixed selection to the shared repository serializer", async () => {
-    const buildRepositoriesPayload = await import("@/components/task-create-dialog-helpers");
+    const builders = await import("@/components/task-create-dialog-helpers");
     const selections = [
       { kind: "local", key: "local-1", repositoryId: "repo-local", branch: "main" },
       {
@@ -444,7 +445,7 @@ describe("useSubtaskSubmit", () => {
       await result.current.handleSubmit({ preventDefault: vi.fn() } as never);
     });
 
-    expect(buildRepositoriesPayload.buildRepositoriesPayload).toHaveBeenCalledWith(
+    expect(builders.buildWorkspaceSourcesPayload).toHaveBeenCalledWith(
       expect.objectContaining({ selections: [...selections] }),
     );
   });

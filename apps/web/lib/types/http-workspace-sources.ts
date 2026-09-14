@@ -47,13 +47,18 @@ export type WorkspaceRepositorySourceRequest = {
   kind: "repository";
   repository_id?: string;
   local_path?: string;
+  github_url?: string;
   remote_url?: string;
   provider?: string;
+  provider_host?: string;
+  provider_scope?: string;
   provider_repo_id?: string;
   provider_owner?: string;
   provider_name?: string;
-  base_branch: string;
+  base_branch?: string;
   checkout_branch?: string;
+  branch_policy_id?: string;
+  pr_number?: number;
 };
 
 export type WorkspaceFolderSourceRequest = {

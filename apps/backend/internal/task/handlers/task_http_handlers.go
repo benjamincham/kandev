@@ -49,6 +49,8 @@ type workspaceSourceJSON struct {
 	ProviderName   string `json:"provider_name"`
 	BaseBranch     string `json:"base_branch"`
 	CheckoutBranch string `json:"checkout_branch"`
+	BranchPolicyID string `json:"branch_policy_id"`
+	PRNumber       int    `json:"pr_number,omitempty"`
 	DisplayName    string `json:"display_name"`
 }
 
@@ -88,7 +90,7 @@ func parseHTTPWorkspaceSources(raw []json.RawMessage) ([]service.WorkspaceSource
 		allowed := map[string]bool{"kind": true, "local_path": true}
 		switch kind {
 		case string(service.WorkspaceSourceRepository):
-			for _, key := range []string{"repository_id", "remote_url", "github_url", "provider", "provider_host", "provider_scope", "provider_repo_id", "provider_owner", "provider_name", "base_branch", "checkout_branch"} {
+			for _, key := range []string{"repository_id", "remote_url", "github_url", "provider", "provider_host", "provider_scope", "provider_repo_id", "provider_owner", "provider_name", "base_branch", "checkout_branch", "branch_policy_id", "pr_number"} {
 				allowed[key] = true
 			}
 		case string(service.WorkspaceSourceFolder):
@@ -105,7 +107,7 @@ func parseHTTPWorkspaceSources(raw []json.RawMessage) ([]service.WorkspaceSource
 		if err := json.Unmarshal(item, &source); err != nil {
 			return nil, err
 		}
-		sources = append(sources, service.WorkspaceSourceInput{Kind: service.WorkspaceSourceKind(source.Kind), RepositoryID: source.RepositoryID, LocalPath: source.LocalPath, GitHubURL: source.GitHubURL, RemoteURL: source.RemoteURL, Provider: source.Provider, ProviderHost: source.ProviderHost, ProviderScope: source.ProviderScope, ProviderRepoID: source.ProviderRepoID, ProviderOwner: source.ProviderOwner, ProviderName: source.ProviderName, BaseBranch: source.BaseBranch, CheckoutBranch: source.CheckoutBranch, DisplayName: source.DisplayName})
+		sources = append(sources, service.WorkspaceSourceInput{Kind: service.WorkspaceSourceKind(source.Kind), RepositoryID: source.RepositoryID, LocalPath: source.LocalPath, GitHubURL: source.GitHubURL, RemoteURL: source.RemoteURL, Provider: source.Provider, ProviderHost: source.ProviderHost, ProviderScope: source.ProviderScope, ProviderRepoID: source.ProviderRepoID, ProviderOwner: source.ProviderOwner, ProviderName: source.ProviderName, BaseBranch: source.BaseBranch, CheckoutBranch: source.CheckoutBranch, BranchPolicyID: source.BranchPolicyID, PRNumber: source.PRNumber, DisplayName: source.DisplayName})
 	}
 	return sources, nil
 }
@@ -755,6 +757,7 @@ type httpCreateTaskRequest struct {
 	Priority          string                    `json:"priority,omitempty"`
 	State             *v1.TaskState             `json:"state,omitempty"`
 	Repositories      []httpTaskRepositoryInput `json:"repositories,omitempty"`
+	WorkspaceSources  *[]json.RawMessage        `json:"workspace_sources,omitempty"`
 	Position          int                       `json:"position,omitempty"`
 	Metadata          map[string]interface{}    `json:"metadata,omitempty"`
 	StartAgent        bool                      `json:"start_agent,omitempty"`
@@ -911,6 +914,19 @@ func (h *TaskHandlers) httpCreateTask(c *gin.Context) {
 	if !ok {
 		return
 	}
+	var workspaceSources *[]service.WorkspaceSourceInput
+	if body.WorkspaceSources != nil {
+		if len(body.Repositories) > 0 || strings.TrimSpace(body.WorkspacePath) != "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "workspace_sources cannot be combined with repositories or workspace_path"})
+			return
+		}
+		parsed, parseErr := parseHTTPWorkspaceSources(*body.WorkspaceSources)
+		if parseErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": parseErr.Error()})
+			return
+		}
+		workspaceSources = &parsed
+	}
 
 	// Always persist profile IDs in task metadata so they can be used as the
 	// task's "default" agent profile. This is needed for deferred agent start
@@ -963,6 +979,7 @@ func (h *TaskHandlers) httpCreateTask(c *gin.Context) {
 		Priority:                    body.Priority,
 		State:                       body.State,
 		Repositories:                convertToServiceRepos(repos),
+		WorkspaceSources:            workspaceSources,
 		Position:                    body.Position,
 		Metadata:                    metadata,
 		DeferredLaunch:              deferredLaunch,
@@ -1067,7 +1084,7 @@ func (h *TaskHandlers) httpCreateTask(c *gin.Context) {
 	}
 
 	h.dispatchTaskSession(c.Request.Context(), taskDTO.ID, taskDTO.Description, body, dispatch)
-	h.recordTaskCreateLastUsed(c.Request.Context(), body, repos)
+	h.recordTaskCreateLastUsed(c.Request.Context(), body, repos, workspaceSources)
 
 	// Associate PR with task if any repository input contains a PR URL
 	h.associatePRFromRepoInputs(taskDTO.ID, response.TaskSessionID, body.Repositories)
@@ -1130,23 +1147,37 @@ func (h *TaskHandlers) httpReleaseTaskExternalID(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-func (h *TaskHandlers) recordTaskCreateLastUsed(ctx context.Context, body httpCreateTaskRequest, repos []dto.TaskRepositoryInput) {
+func (h *TaskHandlers) recordTaskCreateLastUsed(
+	ctx context.Context,
+	body httpCreateTaskRequest,
+	repos []dto.TaskRepositoryInput,
+	workspaceSources ...*[]service.WorkspaceSourceInput,
+) {
 	if h.taskCreateLastUsedRecorder == nil {
 		return
 	}
-	patch := buildTaskCreateLastUsedPatch(body, repos)
+	patch := buildTaskCreateLastUsedPatch(body, repos, workspaceSources...)
 	if err := h.taskCreateLastUsedRecorder.RecordTaskCreateLastUsed(ctx, patch); err != nil {
 		h.logger.Warn("failed to record task-create last-used settings", zap.Error(err))
 	}
 }
 
-func buildTaskCreateLastUsedPatch(body httpCreateTaskRequest, repos []dto.TaskRepositoryInput) usermodels.TaskCreateLastUsed {
+func buildTaskCreateLastUsedPatch(
+	body httpCreateTaskRequest,
+	repos []dto.TaskRepositoryInput,
+	workspaceSources ...*[]service.WorkspaceSourceInput,
+) usermodels.TaskCreateLastUsed {
 	patch := usermodels.TaskCreateLastUsed{
 		AgentProfileID:    body.AgentProfileID,
 		ExecutorProfileID: body.ExecutorProfileID,
 	}
 	if body.WorkspaceID != "" && body.WorkflowID != "" {
 		patch.WorkflowIDsByWorkspace = map[string]string{body.WorkspaceID: body.WorkflowID}
+	}
+	if body.WorkspaceID != "" && len(workspaceSources) > 0 && workspaceSources[0] != nil {
+		patch.WorkspaceSourcesByWorkspace = map[string][]usermodels.TaskCreateLastUsedSource{
+			body.WorkspaceID: mapTaskCreateLastUsedSources(*workspaceSources[0]),
+		}
 	}
 	for i, repo := range repos {
 		if repo.RepositoryID == "" {
@@ -1158,6 +1189,33 @@ func buildTaskCreateLastUsedPatch(body httpCreateTaskRequest, repos []dto.TaskRe
 		break
 	}
 	return patch
+}
+
+func mapTaskCreateLastUsedSources(
+	sources []service.WorkspaceSourceInput,
+) []usermodels.TaskCreateLastUsedSource {
+	mapped := make([]usermodels.TaskCreateLastUsedSource, 0, len(sources))
+	for _, source := range sources {
+		mapped = append(mapped, usermodels.TaskCreateLastUsedSource{
+			Kind:           string(source.Kind),
+			RepositoryID:   source.RepositoryID,
+			LocalPath:      source.LocalPath,
+			GitHubURL:      source.GitHubURL,
+			RemoteURL:      source.RemoteURL,
+			Provider:       source.Provider,
+			ProviderHost:   source.ProviderHost,
+			ProviderScope:  source.ProviderScope,
+			ProviderRepoID: source.ProviderRepoID,
+			ProviderOwner:  source.ProviderOwner,
+			ProviderName:   source.ProviderName,
+			BaseBranch:     source.BaseBranch,
+			CheckoutBranch: source.CheckoutBranch,
+			BranchPolicyID: source.BranchPolicyID,
+			PRNumber:       source.PRNumber,
+			DisplayName:    source.DisplayName,
+		})
+	}
+	return mapped
 }
 
 func taskCreateLastUsedBranch(

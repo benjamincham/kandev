@@ -273,3 +273,12 @@ E2E commands use the guarded runner and rebuild artifacts. Run projects sequenti
   by existing materialization rules, not by the source-tab label.
 - The many source-mode E2E callers must migrate with the component. Hidden stale
   tests are not adequate evidence of compatibility.
+
+## Subsequent workspace-contents extension
+
+The [workspace contents creation package](../workspace-contents-creation/plan.md)
+extends this completed implementation. Its previews replace UI-01 through UI-03
+for future task-creation work: folders coexist with repos, one Add menu handles
+all sources, and the scratch hint moves to the bottom executor explanation.
+This package's completed results remain historical evidence, not verification of
+the new extension.

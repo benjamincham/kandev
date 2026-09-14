@@ -40,11 +40,11 @@ describe("useSubtaskFormState — remoteRepos seed", () => {
       "remote",
       "local",
     ]);
-    expect(result.current.repositorySelections.map((selection) => selection.branch)).toEqual([
-      "main",
-      "develop",
-      "trunk",
-    ]);
+    expect(
+      result.current.repositorySelections.map((selection) =>
+        selection.kind === "folder" ? undefined : selection.branch,
+      ),
+    ).toEqual(["main", "develop", "trunk"]);
   });
 
   it("seeds one empty remoteRepos row when useRemote toggles on with an empty list", () => {

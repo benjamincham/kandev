@@ -160,8 +160,14 @@ describe("MixedRepositoryChips on touch drawers", () => {
     expect(screen.getByTestId("mobile-repository-add")).toBeTruthy();
 
     fireEvent.click(screen.getByTestId("mobile-repository-add"));
+    expect(screen.getByTestId("workspace-source-menu-options")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("workspace-source-menu-repository"));
     expect(screen.getByTestId("task-repository-picker")).toBeTruthy();
     expect(screen.getByTestId("mobile-repository-back")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("mobile-repository-back"));
+    expect(screen.getByTestId("workspace-source-menu-options")).toBeTruthy();
+    expect(screen.queryByTestId("task-repository-picker")).toBeNull();
 
     fireEvent.click(screen.getByTestId("mobile-repository-back"));
     expect(screen.getByTestId("mixed-local-row")).toBeTruthy();

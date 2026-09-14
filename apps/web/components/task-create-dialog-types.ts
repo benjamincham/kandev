@@ -33,6 +33,7 @@ import type {
 import type { useToast } from "@/components/toast-provider";
 import type { TaskCreateLaunchPreview } from "@/components/task-create-dialog-launch-preview";
 import type { TaskRemoteProviderReadinessMap } from "@/components/task-create-dialog-remote-provider-readiness";
+import type { TaskCreateLastUsedSourceApi } from "@/lib/types/http-user-settings";
 
 export type TaskCreateSubmit = (
   payload: Parameters<typeof createTask>[0],
@@ -186,8 +187,39 @@ export type TaskRemoteRepoRow = {
 /** A provider-backed or pasted repository in the ordered task draft. */
 export type TaskRemoteRepositorySelection = TaskRemoteRepoRow & { kind: "remote" };
 
-/** Every repository attached to a task, in the order submitted to the backend. */
-export type TaskRepositorySelection = TaskLocalRepositorySelection | TaskRemoteRepositorySelection;
+/** A live host folder in the ordered task workspace draft. */
+export type TaskWorkspaceFolderSelection = {
+  kind: "folder";
+  key: string;
+  localPath: string;
+  displayName?: string;
+};
+
+/** Every workspace source attached to a task, in the order submitted. */
+export type TaskWorkspaceSelection =
+  | TaskLocalRepositorySelection
+  | TaskRemoteRepositorySelection
+  | TaskWorkspaceFolderSelection;
+
+/** @deprecated Use TaskWorkspaceSelection for new source-aware callers. */
+export type TaskRepositorySelection = TaskWorkspaceSelection;
+
+export type TaskRepositorySetsConfig = {
+  sets: RepositorySet[];
+  onApply: (set: RepositorySet) => void;
+  rows?: TaskRepoRow[];
+  repositories?: Repository[];
+  save?: {
+    workspaceId: string;
+    rows: TaskRepoRow[];
+    repositories: Repository[];
+    isLocalExecutor: boolean;
+    freshBranchEnabled: boolean;
+    selections?: TaskRepositorySelection[];
+    open: boolean;
+    setOpen: (open: boolean) => void;
+  } | null;
+};
 
 export type StepType = {
   id: string;
@@ -357,6 +389,14 @@ export type TaskCreateEffectsArgs = {
   workflows: Array<{ id: string; agent_profile_id?: string }>;
   /** Backend-owned last-used repository. */
   lastUsedRepositoryId?: string | null;
+  /** Workspace-scoped ordered contents saved by the last successful create. */
+  workspaceSourcesByWorkspace?: Record<string, TaskCreateLastUsedSourceApi[]>;
+  /** True once a saved contents snapshot exists for the current workspace. */
+  hasWorkspaceSourcesSnapshot?: boolean;
+  /** Only fresh New Task drafts may hydrate the workspace contents snapshot. */
+  restoreWorkspaceContents?: boolean;
+  /** Source preset supplied by a caller takes precedence over last-used state. */
+  initialValues?: TaskCreateDialogInitialValues;
   /** Whether DB-backed user settings are loaded, or a best-effort fetch has settled. */
   userSettingsLoaded?: boolean;
   /** Backend-owned last-used agent profile. */
@@ -427,9 +467,15 @@ export type DialogFormState = {
   appendRepositorySelection?: (
     selection:
       | Omit<TaskLocalRepositorySelection, "key">
-      | Omit<TaskRemoteRepositorySelection, "key">,
+      | Omit<TaskRemoteRepositorySelection, "key">
+      | Omit<TaskWorkspaceFolderSelection, "key">,
   ) => string;
+  /** Appends a live host folder without changing existing sources. */
+  appendFolderSelection?: (selection: Omit<TaskWorkspaceFolderSelection, "key">) => string;
+  /** Ordered folder projection used by source-aware callers. */
+  workspaceFolders?: Array<Omit<TaskWorkspaceFolderSelection, "kind">>;
   resetRepositorySelections?: (v: TaskRepositorySelection[]) => void;
+  hydrateRepositorySelections?: (v: TaskRepositorySelection[]) => void;
   /** False while rows are hydrated from an existing task; true after user edits. */
   repositoriesDirty: boolean;
   setRepositories: React.Dispatch<React.SetStateAction<TaskRepoRow[]>>;
@@ -686,24 +732,7 @@ export type DialogFormBodyProps = {
   onToggleNoRepository?: () => void;
   onWorkspacePathChange: (value: string) => void;
   /** Repository sets available in this workspace, and how to apply or define one. */
-  repositorySets?: {
-    sets: RepositorySet[];
-    onApply: (set: RepositorySet) => void;
-    /**
-     * Present when the current selection can be saved as a new set. Null when
-     * there is no workspace-repository row to save, so the action is never a
-     * dead end.
-     */
-    save?: {
-      workspaceId: string;
-      rows: TaskRepoRow[];
-      repositories: Repository[];
-      isLocalExecutor: boolean;
-      freshBranchEnabled: boolean;
-      open: boolean;
-      setOpen: (open: boolean) => void;
-    } | null;
-  };
+  repositorySets?: TaskRepositorySetsConfig;
   localRepositoryCreation?: {
     executorSelection:
       | import("@/components/task-create-dialog-handlers").DirectLocalExecutorSelection

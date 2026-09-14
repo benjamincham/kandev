@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Repository, RepositorySet } from "@/lib/types/http";
 import { repositoryId, workspaceId } from "@/lib/types/ids";
-import type { TaskRepoRow } from "@/components/task-create-dialog-types";
+import type { TaskRepoRow, TaskRepositorySelection } from "@/components/task-create-dialog-types";
 
 const toast = vi.fn();
 
@@ -79,5 +79,32 @@ describe("useApplyRepositorySet", () => {
     act(() => result.current(repositorySet));
 
     expect(setNoRepository).not.toHaveBeenCalled();
+  });
+
+  it("appends set members without dropping an existing folder selection", () => {
+    const folder: TaskRepositorySelection = {
+      kind: "folder",
+      key: "folder-1",
+      localPath: "/work/assets",
+    };
+    const setRepositorySelections = vi.fn();
+    const { result } = renderHook(() =>
+      useApplyRepositorySet({
+        rows: [],
+        repositories,
+        setRepositories: vi.fn(),
+        setRepositoriesDirty: vi.fn(),
+        setNoRepository: vi.fn(),
+        selections: [folder],
+        setRepositorySelections,
+      }),
+    );
+
+    act(() => result.current(repositorySet));
+
+    expect(setRepositorySelections).toHaveBeenCalledWith([
+      folder,
+      expect.objectContaining({ kind: "local", repositoryId: REPOSITORY_ID }),
+    ]);
   });
 });

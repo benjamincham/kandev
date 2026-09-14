@@ -14,7 +14,9 @@ type MobileMixedRepositoryActions = {
   addLocal: (choice: LocalRepositoryChoice) => void;
   addRemote: (repository: RemoteRepository) => void;
   addPastedRemote: (url: string) => void;
+  addFolder: (path: string) => void;
   openNewLocalRepository: () => void;
+  removeFolder: (key: string) => void;
 };
 
 export function MobileMixedRepositorySurface({
@@ -23,7 +25,6 @@ export function MobileMixedRepositorySurface({
   accessible,
   selectionsCount,
   selectionRows,
-  folderPicker,
   actions,
 }: {
   props: MixedRepositoryChipsProps;
@@ -31,7 +32,6 @@ export function MobileMixedRepositorySurface({
   accessible: UseRemoteRepositoriesResult;
   selectionsCount: number;
   selectionRows: React.ReactNode;
-  folderPicker: React.ReactNode;
   actions: MobileMixedRepositoryActions;
 }) {
   return (
@@ -52,7 +52,6 @@ export function MobileMixedRepositorySurface({
         workspaceId={props.workspaceId}
         selectionsCount={selectionsCount}
         selectionRows={selectionRows}
-        folderPicker={folderPicker}
         freshBranchToggle={props.freshBranchToggle}
         branchLocked={props.branchLocked}
         repositoryLocked={props.repositoryLocked}
@@ -60,10 +59,12 @@ export function MobileMixedRepositorySurface({
         onSelectLocal={actions.addLocal}
         onSelectRemote={actions.addRemote}
         onPasteRemote={actions.addPastedRemote}
+        onSelectFolder={actions.addFolder}
         onCreateRepository={props.onCreateRepository ? actions.openNewLocalRepository : undefined}
         onRefreshRepositories={props.onRefreshRepositories}
         repositoriesRefreshing={props.repositoriesRefreshing}
         repositoryCreationOpen={props.repositoryCreationOpen}
+        folderAvailable={props.isLocalExecutor}
       />
     </>
   );

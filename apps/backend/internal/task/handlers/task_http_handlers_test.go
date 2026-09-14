@@ -803,6 +803,60 @@ func TestBuildTaskCreateLastUsedPatchRecordsWorkspaceWorkflow(t *testing.T) {
 	}, patch)
 }
 
+func TestBuildTaskCreateLastUsedPatchPreservesOrderedWorkspaceSources(t *testing.T) {
+	sources := []service.WorkspaceSourceInput{
+		{Kind: service.WorkspaceSourceFolder, LocalPath: "/work/assets", DisplayName: "assets"},
+		{
+			Kind:           service.WorkspaceSourceRepository,
+			RepositoryID:   "repo-local",
+			BaseBranch:     "main",
+			CheckoutBranch: "feature/local",
+			BranchPolicyID: "policy-1",
+		},
+		{
+			Kind:           service.WorkspaceSourceRepository,
+			RemoteURL:      "https://git.example.test/acme/api.git",
+			Provider:       "fixture",
+			ProviderRepoID: "remote-1",
+			ProviderOwner:  "acme",
+			ProviderName:   "api",
+			PRNumber:       42,
+		},
+	}
+
+	patch := buildTaskCreateLastUsedPatch(httpCreateTaskRequest{
+		WorkspaceID:       "workspace-1",
+		AgentProfileID:    "agent-1",
+		ExecutorProfileID: "executor-1",
+	}, nil, &sources)
+
+	require.Equal(t, []usermodels.TaskCreateLastUsedSource{
+		{Kind: "folder", LocalPath: "/work/assets", DisplayName: "assets"},
+		{
+			Kind: "repository", RepositoryID: "repo-local", BaseBranch: "main",
+			CheckoutBranch: "feature/local", BranchPolicyID: "policy-1",
+		},
+		{
+			Kind: "repository", RemoteURL: "https://git.example.test/acme/api.git",
+			Provider: "fixture", ProviderRepoID: "remote-1", ProviderOwner: "acme",
+			ProviderName: "api", PRNumber: 42,
+		},
+	}, patch.WorkspaceSourcesByWorkspace["workspace-1"])
+	assert.Equal(t, "agent-1", patch.AgentProfileID)
+	assert.Equal(t, "executor-1", patch.ExecutorProfileID)
+}
+
+func TestBuildTaskCreateLastUsedPatchPreservesExplicitEmptyWorkspaceSources(t *testing.T) {
+	sources := []service.WorkspaceSourceInput{}
+	patch := buildTaskCreateLastUsedPatch(httpCreateTaskRequest{
+		WorkspaceID: "workspace-empty",
+	}, nil, &sources)
+
+	require.Contains(t, patch.WorkspaceSourcesByWorkspace, "workspace-empty")
+	require.NotNil(t, patch.WorkspaceSourcesByWorkspace["workspace-empty"])
+	assert.Empty(t, patch.WorkspaceSourcesByWorkspace["workspace-empty"])
+}
+
 func TestBuildTaskCreateLastUsedPatchUsesFreshBranchRequestBase(t *testing.T) {
 	patch := buildTaskCreateLastUsedPatch(httpCreateTaskRequest{
 		Repositories: []httpTaskRepositoryInput{{
