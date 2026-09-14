@@ -19,6 +19,57 @@ async function addFolderFromMenu(page: Page, folderPath: string) {
 }
 
 test.describe("Task creation workspace contents", () => {
+  test("leaves a first-open empty workspace without a repository chip", async ({
+    testPage,
+    apiClient,
+    seedData,
+  }) => {
+    const workspaceName = "First-open empty workspace";
+    const workspace = await apiClient.createWorkspace(workspaceName);
+
+    try {
+      const workflow = await apiClient.createWorkflow(
+        workspace.id,
+        "First-open workflow",
+        "simple",
+      );
+      await apiClient.saveUserSettings({
+        workspace_id: workspace.id,
+        workflow_filter_id: workflow.id,
+        task_create_last_used: {
+          repository_id: "",
+          branch: "",
+          agent_profile_id: seedData.agentProfileId,
+          executor_profile_id: seedData.worktreeExecutorProfileId,
+          workflow_ids_by_workspace: { [workspace.id]: workflow.id },
+          workspace_sources_by_workspace: {},
+        },
+      });
+
+      const kanban = new KanbanPage(testPage);
+      await kanban.goto();
+      await kanban.createTaskButton.first().click();
+      const dialog = testPage.getByTestId("create-task-dialog");
+      await expect(dialog).toBeVisible();
+      await expect(dialog.getByTestId("repo-chip")).toHaveCount(0);
+      await expect(dialog.getByTestId("add-repository")).toHaveAttribute(
+        "aria-label",
+        "Add Repository/Folder",
+      );
+
+      const scratchHint = "An empty scratch workspace will be created.";
+      const footer = dialog.getByTestId("task-create-dialog-footer");
+      await expect(footer.getByText(scratchHint, { exact: true })).toHaveCount(1);
+      await expect(dialog.getByText(scratchHint, { exact: true })).toHaveCount(1);
+    } finally {
+      await testPage
+        .getByTestId("submit-cancel")
+        .click()
+        .catch(() => undefined);
+      await apiClient.deleteWorkspace(workspace.id, workspaceName).catch(() => undefined);
+    }
+  });
+
   test("restores the complete last-used source order", async ({
     testPage,
     apiClient,
@@ -99,6 +150,9 @@ test.describe("Task creation workspace contents", () => {
         buttons.map((button) => button.querySelector("span.font-medium")?.textContent?.trim()),
       );
     expect(labels).toEqual(["Repository", "Local Folder", "Repository Set"]);
+    const repositoryOption = options.getByTestId("workspace-source-menu-repository");
+    await expect(repositoryOption).toHaveCSS("font-size", "12px");
+    await expect(repositoryOption).toHaveCSS("min-height", "28px");
     await addFolderFromMenu(testPage, folderPath);
     await expect(dialog.getByTestId("workspace-folder-selection")).toContainText("task-assets");
 

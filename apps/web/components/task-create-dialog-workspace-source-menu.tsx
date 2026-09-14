@@ -180,14 +180,14 @@ function SourceMenuOption({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "flex min-h-11 items-center gap-3 rounded-md px-3 py-2 text-left text-sm",
+        "flex min-h-11 items-center gap-3 rounded-md px-3 py-2 text-left text-xs sm:min-h-7 sm:gap-2 sm:px-2 sm:py-1 [@media(pointer:coarse)]:!min-h-11",
         disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-muted",
       )}
       data-testid={testId}
     >
       <span className="shrink-0 text-muted-foreground">{icon}</span>
       <span className="min-w-0 flex-1">
-        <span className="block font-medium">{label}</span>
+        <span className="block text-xs font-medium">{label}</span>
         {description ? (
           <span className="block text-xs text-muted-foreground">{description}</span>
         ) : null}
@@ -211,7 +211,7 @@ function SourceViewHeader({ title, onBack }: { title: string; onBack: () => void
         <IconArrowLeft className="mr-1 size-4" aria-hidden="true" />
         {t("common:back")}
       </Button>
-      <span className="min-w-0 truncate text-sm font-medium">{title}</span>
+      <span className="min-w-0 truncate text-xs font-medium">{title}</span>
     </div>
   );
 }
@@ -308,7 +308,7 @@ export function RepositorySetPickerView({
       {config.save ? (
         <button
           type="button"
-          className="mt-1 min-h-11 rounded-md border-t border-border px-3 py-2 text-left text-xs font-medium hover:bg-muted"
+          className="mt-1 min-h-11 rounded-md border-t border-border px-3 py-2 text-left text-xs font-medium hover:bg-muted sm:min-h-7 sm:px-2 sm:py-1 [@media(pointer:coarse)]:!min-h-11"
           data-testid="repository-set-save-action"
           onClick={() => config.save?.setOpen(true)}
         >
@@ -342,14 +342,14 @@ function RepositorySetOption({
   return (
     <button
       type="button"
-      className="flex min-h-11 flex-col items-start rounded-md px-3 py-2 text-left hover:bg-muted"
+      className="flex min-h-11 flex-col items-start rounded-md px-3 py-2 text-left text-xs hover:bg-muted sm:min-h-7 sm:px-2 sm:py-1 [@media(pointer:coarse)]:!min-h-11"
       data-testid="repository-set-option"
       onClick={() => {
         config.onApply(set);
         onApply();
       }}
     >
-      <span className="font-medium">{set.name}</span>
+      <span className="text-xs font-medium">{set.name}</span>
       <span className="text-xs text-muted-foreground">
         {t("task:repositorySetsMemberCount", { count: set.repositories.length })}
         {outcome.missingCount > 0

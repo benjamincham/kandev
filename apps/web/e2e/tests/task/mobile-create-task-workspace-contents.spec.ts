@@ -43,6 +43,10 @@ test("mobile task creation adds a folder through one contents sheet", async ({
       buttons.map((button) => button.querySelector("span.font-medium")?.textContent?.trim()),
     );
   expect(labels).toEqual(["Repository", "Local Folder", "Repository Set"]);
+  for (const option of await options.locator("button").all()) {
+    await expect(option).toBeVisible();
+    expect((await option.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+  }
   await options.getByTestId("workspace-source-menu-folder").tap();
 
   const picker = sheet.getByTestId("folder-picker-inline");

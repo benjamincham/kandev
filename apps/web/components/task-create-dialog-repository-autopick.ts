@@ -28,11 +28,9 @@ export function useRepositoryAutoSelectEffect(
   repositories: Repository[],
   settings: RepositoryAutoSelectSettings = {},
 ) {
-  // On open, ensure there's always at least one chip rendered: prefer the
-  // user's last-used repo (or the workspace's only repo) so the chip lands
-  // pre-filled, but fall back to an empty row so the picker is visible
-  // instead of just the "+" button. URL mode is excluded - that flow swaps
-  // the chip row for a URL input.
+  // On open, seed a row only when a valid last-used repository or the
+  // workspace's sole repository is available. An empty workspace stays empty
+  // so the user sees the source picker without an identity-free chip.
   const { repositories: rows, useRemote } = fs;
   const hydrateRepositories = fs.hydrateRepositories ?? fs.setRepositories;
   const hasRemoteSelection = fs.repositorySelections
@@ -59,15 +57,13 @@ export function useRepositoryAutoSelectEffect(
       userSettingsLoaded,
     );
     logRepositoryAutoPick(workspaceId, repositories.length, decision);
-    if (decision.defer) return;
+    if (decision.defer || !decision.pickId) return;
     const { pickId } = decision;
     if (rows.length > 0 && !canReplaceEmptyRepositoryPlaceholder(rows, pickId)) return;
     void Promise.resolve().then(() => {
       hydrateRepositories((prev) => {
         if (prev.length > 0) return replaceSeededRepositoryRows(prev, pickId);
-        return [
-          pickId ? buildRepositoryAutoPickRow("row-0", pickId) : { key: "row-0", branch: "" },
-        ];
+        return [buildRepositoryAutoPickRow("row-0", pickId)];
       });
     });
   }, [
@@ -119,7 +115,7 @@ function decideRepositoryAutoPick(
     });
   }
   return buildRepositoryAutoPickDecision(
-    repositories.length === 1 ? "single-workspace-repo" : "empty-row",
+    repositories.length === 1 ? "single-workspace-repo" : "no-repository-candidate",
     repositories.length === 1 ? repositories[0].id : null,
     { settingsRepoId, settingsValid },
   );

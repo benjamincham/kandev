@@ -95,6 +95,17 @@ test.describe("Task creation with repository sets", () => {
     const options = testPage.getByTestId(SET_OPTION);
     await expect(options).toHaveCount(1);
     await expect(options.first()).toContainText(SET_NAME);
+    await expect(options.first()).toHaveCSS("font-size", "12px");
+    await expect(options.first()).toHaveCSS("min-height", "28px");
+    await expect(options.first().getByText(SET_NAME, { exact: true })).toHaveCSS(
+      "font-size",
+      "12px",
+    );
+    await expect(
+      testPage
+        .getByTestId("workspace-source-view-set")
+        .getByText("Repository Set", { exact: true }),
+    ).toHaveCSS("font-size", "12px");
     await options.first().click();
 
     // One row per member, in set order.

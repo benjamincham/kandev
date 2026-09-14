@@ -92,7 +92,7 @@ describe("useRepositoryAutoSelectEffect loading gates", () => {
     expect(readQueuedTaskCreateLastUsedState()).toEqual({});
   });
 
-  it("ignores a stale cached repository after user settings have loaded", async () => {
+  it("leaves the selection empty when loaded settings have no repository candidate", async () => {
     window.localStorage.setItem(STORAGE_KEYS.LAST_REPOSITORY_ID, JSON.stringify("repo-1"));
     const setRepositories = vi.fn();
     const fs = makeRepoAutoSelectFs([], setRepositories);
@@ -107,9 +107,8 @@ describe("useRepositoryAutoSelectEffect loading gates", () => {
       ),
     );
 
-    await waitFor(() => expect(setRepositories).toHaveBeenCalled());
-    const updater = setRepositories.mock.calls[0]![0] as (prev: TaskRepoRow[]) => TaskRepoRow[];
-    expect(updater([])).toEqual([{ key: "row-0", branch: "" }]);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(setRepositories).not.toHaveBeenCalled();
     expect(readQueuedTaskCreateLastUsedState()).toEqual({});
   });
 });
@@ -172,7 +171,7 @@ describe("useRepositoryAutoSelectEffect defaults", () => {
 });
 
 describe("useRepositoryAutoSelectEffect reducer integration", () => {
-  it("hydrates a placeholder after repositories load without marking the draft touched", async () => {
+  it("keeps the selection empty until a repository loads without marking the draft touched", async () => {
     const { result, rerender } = renderHook(
       ({ repositories }: { repositories: Repository[] }) => {
         const selectionState = useRepositorySelectionState();
@@ -191,9 +190,8 @@ describe("useRepositoryAutoSelectEffect reducer integration", () => {
       { initialProps: { repositories: [] as Repository[] } },
     );
 
-    await waitFor(() =>
-      expect(result.current.repositories).toEqual([{ key: "row-0", branch: "" }]),
-    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(result.current.repositories).toEqual([]);
     expect(result.current.repositorySelectionsTouched).toBe(false);
 
     rerender({ repositories: [makeRepository("repo-1")] });
