@@ -22,7 +22,7 @@ type sessionRequestCaptureAgent struct {
 	releaseNew    chan struct{}
 	newCalls      chan struct{}
 	closeStarted  chan struct{}
-	releaseClose chan struct{}
+	releaseClose  chan struct{}
 	closeCalls    chan struct{}
 	loadStarted   chan struct{}
 
