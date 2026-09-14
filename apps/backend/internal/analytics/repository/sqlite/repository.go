@@ -1,18 +1,30 @@
 // Package sqlite provides SQLite-based analytics repository implementations.
 package sqlite
 
-import "github.com/jmoiron/sqlx"
+import (
+	"sync"
+
+	"github.com/jmoiron/sqlx"
+)
 
 // Repository provides SQLite-based analytics operations.
 type Repository struct {
 	db *sqlx.DB // writer (for schema init)
 	ro *sqlx.DB // reader (for all queries — this repo is pure reads)
+	// usageWriteMu serializes usage writes issued through one process. The
+	// database revision predicate below remains authoritative for multiple
+	// processes, while this lock avoids SQLite write races and makes the
+	// read/compare/write result deterministic for in-process callers.
+	usageWriteMu sync.Mutex
 }
 
 // NewWithDB creates a new analytics repository with existing database connections.
 // It automatically creates performance indexes for stats queries using the writer.
 func NewWithDB(writer, reader *sqlx.DB) (*Repository, error) {
 	repo := &Repository{db: writer, ro: reader}
+	if err := repo.ensureUsageSchema(); err != nil {
+		return nil, err
+	}
 	if err := repo.ensureStatsIndexes(); err != nil {
 		return nil, err
 	}

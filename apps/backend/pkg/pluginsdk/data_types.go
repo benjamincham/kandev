@@ -768,6 +768,7 @@ type Session struct {
 	StartedAt        string
 	EndedAt          *string
 	AgentProfileName string // profile name from the snapshot at run time
+	UpdatedAt        string
 }
 
 func (s Session) toProto() *pluginv1.Session {
@@ -782,6 +783,7 @@ func (s Session) toProto() *pluginv1.Session {
 		StartedAt:        s.StartedAt,
 		EndedAt:          s.EndedAt,
 		AgentProfileName: s.AgentProfileName,
+		UpdatedAt:        s.UpdatedAt,
 	}
 }
 
@@ -800,6 +802,7 @@ func sessionFromProto(p *pluginv1.Session) Session {
 		StartedAt:        p.GetStartedAt(),
 		EndedAt:          p.EndedAt,
 		AgentProfileName: p.GetAgentProfileName(),
+		UpdatedAt:        p.GetUpdatedAt(),
 	}
 }
 
@@ -830,6 +833,8 @@ type SessionFilter struct {
 	TaskIDs      []string
 	WorkspaceIDs []string
 	States       []string
+	SessionIDs   []string
+	UpdatedSince *string
 }
 
 func (f SessionFilter) toProto() *pluginv1.SessionFilter {
@@ -837,6 +842,8 @@ func (f SessionFilter) toProto() *pluginv1.SessionFilter {
 		TaskIds:      f.TaskIDs,
 		WorkspaceIds: f.WorkspaceIDs,
 		States:       f.States,
+		SessionIds:   f.SessionIDs,
+		UpdatedSince: f.UpdatedSince,
 	}
 }
 
@@ -848,6 +855,8 @@ func sessionFilterFromProto(p *pluginv1.SessionFilter) SessionFilter {
 		TaskIDs:      p.GetTaskIds(),
 		WorkspaceIDs: p.GetWorkspaceIds(),
 		States:       p.GetStates(),
+		SessionIDs:   p.GetSessionIds(),
+		UpdatedSince: p.UpdatedSince,
 	}
 }
 
