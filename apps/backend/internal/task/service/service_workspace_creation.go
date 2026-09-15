@@ -26,8 +26,17 @@ func normalizeWorkspaceSourcesForCreation(req *CreateTaskRequest) error {
 
 	repositories := make([]TaskRepositoryInput, 0, len(*req.WorkspaceSources))
 	for _, source := range *req.WorkspaceSources {
+		if source.Kind == WorkspaceSourceFolder && (source.CheckoutSource != "" || source.ExpectedOrigin != "") {
+			return fmt.Errorf("%w: checkout source fields are only valid for repository sources", ErrInvalidWorkspaceSource)
+		}
 		if source.Kind != WorkspaceSourceRepository {
 			continue
+		}
+		if source.CheckoutSource != "" && source.CheckoutSource != checkoutSourceRemoteOrigin {
+			return fmt.Errorf("%w: unsupported checkout_source %q", ErrInvalidWorkspaceSource, source.CheckoutSource)
+		}
+		if source.CheckoutSource == "" && source.ExpectedOrigin != "" {
+			return fmt.Errorf("%w: expected_origin requires checkout_source", ErrInvalidWorkspaceSource)
 		}
 		repositories = append(repositories, TaskRepositoryInput{
 			RepositoryID:   source.RepositoryID,
@@ -44,6 +53,8 @@ func normalizeWorkspaceSourcesForCreation(req *CreateTaskRequest) error {
 			ProviderRepoID: source.ProviderRepoID,
 			ProviderOwner:  source.ProviderOwner,
 			ProviderName:   source.ProviderName,
+			CheckoutSource: source.CheckoutSource,
+			ExpectedOrigin: source.ExpectedOrigin,
 		})
 	}
 	req.Repositories = repositories

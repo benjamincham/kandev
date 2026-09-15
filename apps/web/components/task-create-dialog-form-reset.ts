@@ -21,6 +21,11 @@ export type FormResetters = {
   setAgentProfileId: (value: string) => void;
   setExecutorId: (value: string) => void;
   setExecutorProfileId: (value: string) => void;
+  setExecutorChoiceTouched?: (value: boolean) => void;
+  setAutomaticExecutorRestore?: (
+    value: { executorId: string; executorProfileId: string } | null,
+  ) => void;
+  setFolderOnlyExecutorNotice?: (value: boolean) => void;
   setSelectedWorkflowId: (value: string | null) => void;
   setFetchedSteps: (value: StepType[] | null) => void;
   setDiscoveredRepositories: (value: LocalRepository[]) => void;
@@ -49,8 +54,43 @@ export function resetTaskForm(
   resetters.setHasTitle(name.trim().length > 0);
   resetters.setHasDescription(description.trim().length > 0);
   resetters.setHasPendingAttachmentUploads(false);
-  const savedRepositories = initialValues?.repositories ?? [];
-  const restoredRepositories = savedRepositories.map((repository, index) => ({
+  resetRepositoryState(resetters, initialValues);
+  resetters.setRepositoriesDirty(false);
+  resetters.setAgentProfileId("");
+  resetters.setExecutorId("");
+  resetters.setExecutorProfileId("");
+  resetters.setExecutorChoiceTouched?.(false);
+  resetters.setAutomaticExecutorRestore?.(null);
+  resetters.setFolderOnlyExecutorNotice?.(false);
+  resetters.setSelectedWorkflowId(workflowId);
+  resetters.setFetchedSteps(null);
+  resetters.setNoRepository(resolveInitialNoRepository(initialValues));
+  resetters.setPreferLocalExecutor(initialValues?.preferLocalExecutor ?? false);
+  resetters.setWorkspacePath("");
+  resetters.setAutopilot(false);
+  resetters.setPriority("medium");
+  resetters.setRemoteProviderReadiness?.({});
+}
+
+function resetRepositoryState(
+  resetters: FormResetters,
+  initialValues: TaskCreateDialogInitialValues | undefined,
+) {
+  const restoredRepositories = restoreRepositories(initialValues);
+  const initialSelections = repositorySelectionsFromInitialValues(
+    initialValues,
+    restoredRepositories,
+  );
+  if (resetters.resetRepositorySelections) {
+    resetters.resetRepositorySelections(initialSelections);
+    return;
+  }
+  resetters.setRepositories(restoredRepositories);
+  resetters.setRemoteRepos(seededRemoteRepositories(initialValues));
+}
+
+function restoreRepositories(initialValues?: TaskCreateDialogInitialValues): TaskRepoRow[] {
+  const restoredRepositories = (initialValues?.repositories ?? []).map((repository, index) => ({
     key: `row-${index}`,
     repositoryId: repository.repository_id,
     branch:
@@ -68,31 +108,12 @@ export function resetTaskForm(
       branchPolicyId: undefined,
     });
   }
-  const initialSelections = repositorySelectionsFromInitialValues(
-    initialValues,
-    restoredRepositories,
-  );
-  if (resetters.resetRepositorySelections) {
-    resetters.resetRepositorySelections(initialSelections);
-  } else {
-    resetters.setRepositories(restoredRepositories);
-    resetters.setRemoteRepos(seededRemoteRepositories(initialValues));
-  }
-  resetters.setRepositoriesDirty(false);
-  resetters.setAgentProfileId("");
-  resetters.setExecutorId("");
-  resetters.setExecutorProfileId("");
-  resetters.setSelectedWorkflowId(workflowId);
-  resetters.setFetchedSteps(null);
-  const explicitEmptySelection =
-    initialValues?.repositorySelections !== undefined &&
-    initialValues.repositorySelections.length === 0;
-  resetters.setNoRepository(initialValues?.noRepository ?? explicitEmptySelection);
-  resetters.setPreferLocalExecutor(initialValues?.preferLocalExecutor ?? false);
-  resetters.setWorkspacePath("");
-  resetters.setAutopilot(false);
-  resetters.setPriority("medium");
-  resetters.setRemoteProviderReadiness?.({});
+  return restoredRepositories;
+}
+
+function resolveInitialNoRepository(initialValues?: TaskCreateDialogInitialValues): boolean {
+  if (initialValues?.noRepository !== undefined) return initialValues.noRepository;
+  return initialValues?.repositorySelections?.length === 0;
 }
 
 /** Builds the ordered source rows used when a dialog opens. */

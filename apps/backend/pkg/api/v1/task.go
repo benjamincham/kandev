@@ -192,6 +192,8 @@ type TaskWorkspaceSourceInput struct {
 	ProviderRepoID      string   `json:"provider_repo_id,omitempty"`
 	ProviderOwner       string   `json:"provider_owner,omitempty"`
 	ProviderName        string   `json:"provider_name,omitempty"`
+	CheckoutSource      string   `json:"checkout_source,omitempty"`
+	ExpectedOrigin      string   `json:"expected_origin,omitempty"`
 	BaseBranch          string   `json:"base_branch,omitempty"`
 	CheckoutBranch      string   `json:"checkout_branch,omitempty"`
 	BranchPolicyID      string   `json:"branch_policy_id,omitempty"`

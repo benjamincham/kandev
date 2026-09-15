@@ -30,6 +30,18 @@ import { isSelectableAgentProfile } from "@/lib/state/slices/settings/types";
 import { getMultiRepoExecutorDisabledReason } from "@/components/task-create-dialog-multi-repo-guard";
 import { resolveRepositorySelections } from "@/components/task-create-dialog-repositories-state";
 import { t } from "@/lib/i18n";
+import {
+  deriveExecutorSourcePolicy,
+  executorSourceIncompatibilityReasonKey,
+  executorSourcePolicyReasonKey,
+  type ExecutorSourcePolicy,
+} from "@/components/task-create-dialog-executor-source-policy";
+import { getWorkspaceSourceCapabilities } from "@/components/workspace-source-picker/executor-capabilities";
+import {
+  useRepositoryCloneSource,
+  type RepositoryCloneSourceCandidate,
+  type RepositoryCloneSourceState,
+} from "@/hooks/domains/repositories/use-repository-clone-source";
 
 /**
  * Worktree executor needs a repository to create the worktree from. Disable
@@ -268,8 +280,47 @@ function useExecutorProfileCompat(
   };
 }
 
+function useSelectedRemoteOriginInspection(
+  fs: DialogFormState,
+  workspaceId: string | null,
+  executorType: ExecutorProfile["executor_type"],
+) {
+  const candidates = useMemo<RepositoryCloneSourceCandidate[]>(
+    () =>
+      resolveRepositorySelections(fs)
+        .filter(
+          (selection): selection is Extract<typeof selection, { kind: "local" }> =>
+            selection.kind === "local" && selection.checkoutSource === "remote_origin",
+        )
+        .map((selection) => ({
+          key: selection.key,
+          repositoryId: selection.repositoryId,
+          localPath: selection.localPath,
+        })),
+    [fs.repositorySelections, fs.repositories, fs.remoteRepos, fs.useRemote],
+  );
+  const requiresInspection =
+    getWorkspaceSourceCapabilities(executorType).requiresCloneableLocalRepository;
+  const inspection = useRepositoryCloneSource(workspaceId, candidates, requiresInspection);
+  return {
+    candidates,
+    states: inspection.states,
+    enabled: requiresInspection && Boolean(workspaceId),
+  };
+}
+
+function resolveExecutorSourcePolicyReason(
+  inspectionPending: boolean,
+  reasonKey: ReturnType<typeof executorSourceIncompatibilityReasonKey>,
+): string | null {
+  if (inspectionPending) return t("task:checkingRepositoryOrigin");
+  if (reasonKey) return t(reasonKey);
+  return null;
+}
+
 function useDialogExecutorState({
   fs,
+  workspaceId,
   agentProfiles,
   executors,
   repositories,
@@ -278,6 +329,7 @@ function useDialogExecutorState({
   agentProfileRecentUseContext,
 }: {
   fs: DialogFormState;
+  workspaceId: string | null;
   agentProfiles: DialogComputedArgs["agentProfiles"];
   executors: DialogComputedArgs["executors"];
   repositories: DialogComputedArgs["repositories"];
@@ -300,33 +352,155 @@ function useDialogExecutorState({
   const selectedFolderCount = selectedSources.filter(
     (selection) => selection.kind === "folder",
   ).length;
-  const folderOnlySelection = selectedSourceCount > 0 && selectedRepoCount === 0;
+  const selectedLocalRepositoryCount = selectedSources.filter(
+    (selection) => selection.kind === "local",
+  ).length;
+  const selectedRemoteOriginRepositoryCount = selectedSources.filter(
+    (selection) => selection.kind === "local" && selection.checkoutSource === "remote_origin",
+  ).length;
   const isMultiRepoSelection = selectedRepoCount > 1;
   const exec = useExecutorProfileCompat(
     allExecutorProfiles,
     fs.executorProfileId,
     { agentProfileId: effectiveAgentProfileId, agentProfiles, workflowAgentLocked },
-    pickExecutorDisabledReason(fs.noRepository || folderOnlySelection, isMultiRepoSelection),
+    pickExecutorDisabledReason(fs.noRepository, isMultiRepoSelection),
+  );
+  const remoteOriginInspection = useSelectedRemoteOriginInspection(
+    fs,
+    workspaceId,
+    exec.selectedExecutorProfile?.executor_type,
   );
   const agentProfileOptions = useAgentProfileOptions(
     exec.compatibleAgentProfiles,
     agentProfileRecentUseContext,
   );
-  const executorHint = useExecutorHint(
+  const defaultExecutorHint = useExecutorHint(
     executors,
     fs.executorId,
     selectedRepoCount,
     selectedSourceCount,
     selectedFolderCount,
   );
-  const isLocalExecutor = useIsLocalExecutor(executors, fs.executorId);
+  const sourceState = useExecutorSourceState({
+    executors,
+    executorId: fs.executorId,
+    selectedExecutorProfile: exec.selectedExecutorProfile,
+    selectedRepoCount,
+    selectedSourceCount,
+    selectedFolderCount,
+    selectedLocalRepositoryCount,
+    selectedRemoteOriginRepositoryCount,
+    defaultExecutorHint,
+    folderOnlyExecutorNotice: Boolean(fs.folderOnlyExecutorNotice),
+    remoteOriginCandidates: remoteOriginInspection.candidates,
+    remoteOriginStates: remoteOriginInspection.states,
+    remoteOriginInspectionEnabled: remoteOriginInspection.enabled,
+  });
   const { headerRepositoryOptions } = useRepositoryOptions(repositories, fs.discoveredRepositories);
   return {
     exec,
     agentProfileOptions,
-    executorHint,
-    isLocalExecutor,
+    ...sourceState,
     headerRepositoryOptions,
+  };
+}
+
+function useExecutorSourceState({
+  executors,
+  executorId,
+  selectedExecutorProfile,
+  selectedRepoCount,
+  selectedSourceCount,
+  selectedFolderCount,
+  selectedLocalRepositoryCount,
+  selectedRemoteOriginRepositoryCount,
+  defaultExecutorHint,
+  folderOnlyExecutorNotice,
+  remoteOriginCandidates,
+  remoteOriginStates,
+  remoteOriginInspectionEnabled,
+}: {
+  executors: DialogComputedArgs["executors"];
+  executorId: string;
+  selectedExecutorProfile: ExecutorProfile | null;
+  selectedRepoCount: number;
+  selectedSourceCount: number;
+  selectedFolderCount: number;
+  selectedLocalRepositoryCount: number;
+  selectedRemoteOriginRepositoryCount: number;
+  defaultExecutorHint: string | null;
+  folderOnlyExecutorNotice: boolean;
+  remoteOriginCandidates: RepositoryCloneSourceCandidate[];
+  remoteOriginStates: Record<string, RepositoryCloneSourceState>;
+  remoteOriginInspectionEnabled: boolean;
+}) {
+  const isLocalExecutor = useIsLocalExecutor(executors, executorId);
+  const baseExecutorSourcePolicy = useMemo<ExecutorSourcePolicy>(
+    () =>
+      deriveExecutorSourcePolicy({
+        executorType: selectedExecutorProfile?.executor_type,
+        counts: {
+          sourceCount: selectedSourceCount,
+          repositoryCount: selectedRepoCount,
+          folderCount: selectedFolderCount,
+          localRepositoryCount: selectedLocalRepositoryCount,
+          remoteOriginRepositoryCount: selectedRemoteOriginRepositoryCount,
+        },
+      }),
+    [
+      selectedExecutorProfile?.executor_type,
+      selectedSourceCount,
+      selectedRepoCount,
+      selectedFolderCount,
+      selectedLocalRepositoryCount,
+      selectedRemoteOriginRepositoryCount,
+    ],
+  );
+  const remoteOriginInspectionPending =
+    remoteOriginInspectionEnabled &&
+    remoteOriginCandidates.some((candidate) => {
+      const state = remoteOriginStates[candidate.key];
+      return !state || state.status === "checking";
+    });
+  const remoteOriginInspectionInvalid =
+    remoteOriginInspectionEnabled &&
+    remoteOriginCandidates.some(
+      (candidate) => remoteOriginStates[candidate.key]?.status !== "ready",
+    );
+  const executorSourcePolicy = useMemo<ExecutorSourcePolicy>(() => {
+    if (!remoteOriginInspectionInvalid) return baseExecutorSourcePolicy;
+    return {
+      ...baseExecutorSourcePolicy,
+      incompatible: true,
+      incompatibleReason: "repository_origin_unavailable",
+    };
+  }, [baseExecutorSourcePolicy, remoteOriginInspectionInvalid]);
+  const executorSourceNotice = folderOnlyExecutorNotice
+    ? t("task:folderOnlyExecutorSwitched")
+    : null;
+  const folderPolicyReasonKey = executorSourcePolicyReasonKey(
+    executorSourcePolicy.folderDisabledReason,
+  );
+  const folderDisabledReason = folderPolicyReasonKey ? t(folderPolicyReasonKey) : undefined;
+  const sourcePolicyReasonKey = executorSourceIncompatibilityReasonKey(
+    executorSourcePolicy.incompatibleReason,
+  );
+  const sourcePolicyReason = resolveExecutorSourcePolicyReason(
+    remoteOriginInspectionPending,
+    sourcePolicyReasonKey,
+  );
+  const executorHint =
+    executorSourcePolicy.capabilities.requiresCloneableLocalRepository &&
+    selectedRemoteOriginRepositoryCount > 0
+      ? t("task:executorHintRemoteOrigin")
+      : defaultExecutorHint;
+  return {
+    executorHint,
+    executorSourcePolicy,
+    executorSourceNotice,
+    folderDisabledReason,
+    sourcePolicyReason,
+    isLocalExecutor,
   };
 }
 
@@ -385,6 +559,7 @@ export function useDialogComputed({
   const branchOptions = useBranchOptions(fs.branchesByUrl.branches(firstRemoteUrl));
   const executorState = useDialogExecutorState({
     fs,
+    workspaceId,
     agentProfiles,
     executors,
     repositories,
@@ -410,6 +585,10 @@ export function useDialogComputed({
     agentProfileOptions: executorState.agentProfileOptions,
     executorProfileOptions: executorState.exec.executorProfileOptions,
     executorHint: executorState.executorHint,
+    executorSourcePolicy: executorState.executorSourcePolicy,
+    executorSourceNotice: executorState.executorSourceNotice,
+    sourcePolicyReason: executorState.sourcePolicyReason,
+    folderDisabledReason: executorState.folderDisabledReason,
     isLocalExecutor: executorState.isLocalExecutor,
     headerRepositoryOptions: executorState.headerRepositoryOptions,
     agentProfilesLoading,

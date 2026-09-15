@@ -165,7 +165,9 @@ test.describe("Create task mixed repository selection", () => {
     await add.click();
     const sourceOptions = testPage.getByTestId("workspace-source-menu-options");
     await expect(sourceOptions).toBeVisible();
-    await expect(sourceOptions.getByTestId("workspace-source-menu-folder")).toBeDisabled();
+    // Worktree can host a folder directly, including after the last repository
+    // is removed and the draft returns to its explicit empty state.
+    await expect(sourceOptions.getByTestId("workspace-source-menu-folder")).toBeEnabled();
     await testPage.keyboard.press("Escape");
   });
 });

@@ -18,28 +18,61 @@ export function buildLocalRepositorySelection(
     ...(choice.repositoryId ? { repositoryId: choice.repositoryId } : {}),
     ...(choice.localPath ? { localPath: choice.localPath } : {}),
     branch: isLocalExecutor === false ? (choice.defaultBranch ?? "") : "",
+    ...(choice.checkoutSource ? { checkoutSource: choice.checkoutSource } : {}),
+    ...(choice.expectedOrigin ? { expectedOrigin: choice.expectedOrigin } : {}),
+    ...(choice.remoteBranches ? { remoteBranches: choice.remoteBranches } : {}),
   };
 }
 
-export function useMixedRepositoryActions(
-  fs: DialogFormState,
-  selectionCount: number,
-  isLocalExecutor: boolean,
-  onCreateRepository?: (key: string) => void,
-) {
-  const appendActions = useRepositoryAppendActions(fs, isLocalExecutor, onCreateRepository);
-  const removeActions = useRepositoryRemoveActions(fs, selectionCount);
+type MixedRepositoryActionsArgs = {
+  fs: DialogFormState;
+  selectionCount: number;
+  isLocalExecutor: boolean;
+  onCreateRepository?: (key: string) => void;
+  onFolderSelectionAdded?: (wasEmpty: boolean) => void;
+  onRepositorySelectionAdded?: (wasFolderOnly: boolean) => void;
+  onAllWorkspaceSourcesRemoved?: () => void;
+};
+
+export function useMixedRepositoryActions({
+  fs,
+  selectionCount,
+  isLocalExecutor,
+  onCreateRepository,
+  onFolderSelectionAdded,
+  onRepositorySelectionAdded,
+  onAllWorkspaceSourcesRemoved,
+}: MixedRepositoryActionsArgs) {
+  const appendActions = useRepositoryAppendActions({
+    fs,
+    isLocalExecutor,
+    onCreateRepository,
+    selectionCount,
+    onFolderSelectionAdded,
+    onRepositorySelectionAdded,
+  });
+  const removeActions = useRepositoryRemoveActions(
+    fs,
+    selectionCount,
+    onAllWorkspaceSourcesRemoved,
+  );
   return { ...appendActions, ...removeActions };
 }
 
-function useRepositoryAppendActions(
-  fs: DialogFormState,
-  isLocalExecutor: boolean,
-  onCreateRepository?: (key: string) => void,
-) {
+type RepositoryAppendActionsArgs = Omit<MixedRepositoryActionsArgs, "onAllWorkspaceSourcesRemoved">;
+
+function useRepositoryAppendActions({
+  fs,
+  isLocalExecutor,
+  onCreateRepository,
+  selectionCount = 0,
+  onFolderSelectionAdded,
+  onRepositorySelectionAdded,
+}: RepositoryAppendActionsArgs) {
   const appendSelection = fs.appendRepositorySelection;
   const addLocal = useCallback(
     (choice: LocalRepositoryChoice) => {
+      onRepositorySelectionAdded?.(selectionIsFolderOnly(fs));
       fs.setNoRepository(false);
       if (appendSelection) {
         appendSelection(buildLocalRepositorySelection(choice, isLocalExecutor));
@@ -47,10 +80,11 @@ function useRepositoryAppendActions(
       }
       fs.addRepository();
     },
-    [appendSelection, fs.addRepository, fs.setNoRepository, isLocalExecutor],
+    [appendSelection, fs, isLocalExecutor, onRepositorySelectionAdded],
   );
   const addRemote = useCallback(
     (repository: RemoteRepository) => {
+      onRepositorySelectionAdded?.(selectionIsFolderOnly(fs));
       fs.setNoRepository(false);
       if (!appendSelection) {
         fs.addRemoteRepo();
@@ -71,10 +105,11 @@ function useRepositoryAppendActions(
         fullName: repository.fullName,
       });
     },
-    [appendSelection, fs.addRemoteRepo, fs.setNoRepository],
+    [appendSelection, fs, onRepositorySelectionAdded],
   );
   const addPastedRemote = useCallback(
     (url: string) => {
+      onRepositorySelectionAdded?.(selectionIsFolderOnly(fs));
       fs.setNoRepository(false);
       if (!appendSelection) {
         fs.addRemoteRepo();
@@ -82,12 +117,13 @@ function useRepositoryAppendActions(
       }
       appendSelection({ kind: "remote", url, branch: "", source: "paste" });
     },
-    [appendSelection, fs.addRemoteRepo, fs.setNoRepository],
+    [appendSelection, fs, onRepositorySelectionAdded],
   );
   const addFolder = useCallback(
     (localPath: string) => {
       const path = localPath.trim();
       if (!path || folderAlreadySelected(fs, path)) return;
+      onFolderSelectionAdded?.(selectionCount === 0);
       fs.setNoRepository(false);
       if (fs.appendFolderSelection) {
         fs.appendFolderSelection({ kind: "folder", localPath: path });
@@ -95,14 +131,15 @@ function useRepositoryAppendActions(
       }
       fs.setWorkspacePath(path);
     },
-    [fs],
+    [fs, onFolderSelectionAdded, selectionCount],
   );
   const openNewLocalRepository = useCallback(() => {
     if (!appendSelection || !onCreateRepository) return;
+    onRepositorySelectionAdded?.(selectionIsFolderOnly(fs));
     fs.setNoRepository(false);
     const key = appendSelection({ kind: "local", branch: "" });
     onCreateRepository(key);
-  }, [appendSelection, fs.setNoRepository, onCreateRepository]);
+  }, [appendSelection, fs, onCreateRepository, onRepositorySelectionAdded]);
   return { addLocal, addRemote, addPastedRemote, addFolder, openNewLocalRepository };
 }
 
@@ -115,30 +152,52 @@ function folderAlreadySelected(fs: DialogFormState, path: string): boolean {
   );
 }
 
-function useRepositoryRemoveActions(fs: DialogFormState, selectionCount: number) {
+function useRepositoryRemoveActions(
+  fs: DialogFormState,
+  selectionCount: number,
+  onAllWorkspaceSourcesRemoved?: () => void,
+) {
   const shouldEnterScratch = selectionCount === 1;
   const removeLocal = useCallback(
     (key: string) => {
       fs.removeRepository(key);
-      if (shouldEnterScratch) fs.setNoRepository(true);
+      if (shouldEnterScratch) {
+        fs.setNoRepository(true);
+        onAllWorkspaceSourcesRemoved?.();
+      }
     },
-    [fs.removeRepository, fs.setNoRepository, shouldEnterScratch],
+    [fs.removeRepository, fs.setNoRepository, shouldEnterScratch, onAllWorkspaceSourcesRemoved],
   );
   const removeRemote = useCallback(
     (key: string) => {
       fs.removeRemoteRepo(key);
-      if (shouldEnterScratch) fs.setNoRepository(true);
+      if (shouldEnterScratch) {
+        fs.setNoRepository(true);
+        onAllWorkspaceSourcesRemoved?.();
+      }
     },
-    [fs.removeRemoteRepo, fs.setNoRepository, shouldEnterScratch],
+    [fs.removeRemoteRepo, fs.setNoRepository, shouldEnterScratch, onAllWorkspaceSourcesRemoved],
   );
   const removeFolder = useCallback(
     (key: string) => {
       fs.removeRepository(key);
-      if (shouldEnterScratch) fs.setNoRepository(true);
+      if (shouldEnterScratch) {
+        fs.setNoRepository(true);
+        onAllWorkspaceSourcesRemoved?.();
+      }
     },
-    [fs.removeRepository, fs.setNoRepository, shouldEnterScratch],
+    [fs.removeRepository, fs.setNoRepository, shouldEnterScratch, onAllWorkspaceSourcesRemoved],
   );
   return { removeLocal, removeRemote, removeFolder };
+}
+
+function selectionIsFolderOnly(fs: DialogFormState): boolean {
+  const selections = resolveRepositorySelections(fs).filter((selection) => {
+    if (selection.kind === "remote") return Boolean(selection.url.trim());
+    if (selection.kind === "folder") return Boolean(selection.localPath.trim());
+    return Boolean(selection.repositoryId || selection.localPath);
+  });
+  return selections.length > 0 && selections.every((selection) => selection.kind === "folder");
 }
 
 function normalizeWorkspaceFolderPath(path: string): string {

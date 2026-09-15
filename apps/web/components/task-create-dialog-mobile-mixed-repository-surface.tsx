@@ -50,6 +50,7 @@ export function MobileMixedRepositorySurface({
         discoveredRepositories={props.fs.discoveredRepositories}
         accessible={accessible}
         workspaceId={props.workspaceId}
+        remoteOriginMode={props.executorSourcePolicy?.capabilities.requiresCloneableLocalRepository}
         selectionsCount={selectionsCount}
         selectionRows={selectionRows}
         freshBranchToggle={props.freshBranchToggle}
@@ -64,7 +65,8 @@ export function MobileMixedRepositorySurface({
         onRefreshRepositories={props.onRefreshRepositories}
         repositoriesRefreshing={props.repositoriesRefreshing}
         repositoryCreationOpen={props.repositoryCreationOpen}
-        folderAvailable={props.isLocalExecutor}
+        folderAvailable={props.executorSourcePolicy?.folderAvailable ?? props.isLocalExecutor}
+        folderDisabledReason={props.folderDisabledReason}
       />
     </>
   );

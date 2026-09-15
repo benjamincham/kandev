@@ -142,7 +142,7 @@ func newWSTaskHandlers(t *testing.T, repo *wsTaskRepo) *TaskHandlers {
 
 func TestWSCreateTaskConversionPreservesMixedRepositoryOrder(t *testing.T) {
 	got := convertToServiceRepos([]dto.TaskRepositoryInput{
-		{RepositoryID: "repo-local", BaseBranch: "develop", CheckoutBranch: "feature/local"},
+		{RepositoryID: "repo-local", BaseBranch: "develop", CheckoutBranch: "feature/local", CheckoutSource: "remote_origin", ExpectedOrigin: "https://github.com/acme/local.git"},
 		{
 			RemoteURL: "https://git.example.test/acme/remote.git", BaseBranch: "main",
 			CheckoutBranch: "feature/remote", Provider: "fixture-source-control",
@@ -154,6 +154,7 @@ func TestWSCreateTaskConversionPreservesMixedRepositoryOrder(t *testing.T) {
 	require.Len(t, got, 2)
 	assert.Equal(t, service.TaskRepositoryInput{
 		RepositoryID: "repo-local", BaseBranch: "develop", CheckoutBranch: "feature/local",
+		CheckoutSource: "remote_origin", ExpectedOrigin: "https://github.com/acme/local.git",
 	}, got[0])
 	assert.Equal(t, service.TaskRepositoryInput{
 		RemoteURL: "https://git.example.test/acme/remote.git", BaseBranch: "main",

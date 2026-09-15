@@ -752,7 +752,7 @@ func TestConvertCreateTaskRepositoriesPreservesMixedOrderAndProviderIdentity(t *
 	c, _ := gin.CreateTestContext(rec)
 
 	repos, ok := convertCreateTaskRepositories(c, []httpTaskRepositoryInput{
-		{RepositoryID: "repo-local", BaseBranch: "develop", CheckoutBranch: "feature/local"},
+		{RepositoryID: "repo-local", BaseBranch: "develop", CheckoutBranch: "feature/local", CheckoutSource: "remote_origin", ExpectedOrigin: "https://github.com/acme/local.git"},
 		{
 			RemoteURL: "https://git.example.test/acme/remote.git", BaseBranch: "main",
 			CheckoutBranch: "feature/remote", Provider: "fixture-source-control",
@@ -763,7 +763,10 @@ func TestConvertCreateTaskRepositoriesPreservesMixedOrderAndProviderIdentity(t *
 
 	require.True(t, ok)
 	require.Len(t, repos, 2)
-	assert.Equal(t, dto.TaskRepositoryInput{RepositoryID: "repo-local", BaseBranch: "develop", CheckoutBranch: "feature/local"}, repos[0])
+	assert.Equal(t, dto.TaskRepositoryInput{
+		RepositoryID: "repo-local", BaseBranch: "develop", CheckoutBranch: "feature/local",
+		CheckoutSource: "remote_origin", ExpectedOrigin: "https://github.com/acme/local.git",
+	}, repos[0])
 	assert.Equal(t, dto.TaskRepositoryInput{
 		RemoteURL: "https://git.example.test/acme/remote.git", BaseBranch: "main",
 		CheckoutBranch: "feature/remote", Provider: "fixture-source-control",

@@ -30,6 +30,8 @@ type TaskRepositoryInput struct {
 	ProviderRepoID string `json:"provider_repo_id,omitempty"`
 	ProviderOwner  string `json:"provider_owner,omitempty"`
 	ProviderName   string `json:"provider_name,omitempty"`
+	CheckoutSource string `json:"checkout_source,omitempty"`
+	ExpectedOrigin string `json:"expected_origin,omitempty"`
 
 	// PreserveBaseBranch keeps an effective branch produced after policy
 	// resolution (for example, the branch created by the local fresh-branch

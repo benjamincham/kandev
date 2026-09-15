@@ -317,3 +317,7 @@ contain the exact command groups. Before any pnpm command in a fresh worktree, r
 - Source cleanup must remove owned links without deleting live user folders.
 - Shared picker refactoring must preserve native desktop folder selection, provider
   readiness, branch defaults, sets, and the live attachment consumer.
+
+## Executor-aware source follow-up
+
+[New plan](../executor-aware-workspace-sources/plan.md) extends folder browsing, visible folder-only executor adjustment, and remote cloning from local origins. Existing completed results remain historical; new work is pending.

@@ -262,6 +262,8 @@ function mapTaskCreateLastUsedSource(
       provider_repo_id: source.provider_repo_id,
       provider_owner: source.provider_owner,
       provider_name: source.provider_name,
+      checkout_source: source.checkout_source,
+      expected_origin: source.expected_origin,
       base_branch: source.base_branch,
       checkout_branch: source.checkout_branch,
       branch_policy_id: source.branch_policy_id,
@@ -362,6 +364,9 @@ function useRepositoryHandlers(fs: DialogFormState, repositories: Repository[]) 
             branch: "",
             baseBranch: undefined,
             branchPolicyId: undefined,
+            checkoutSource: undefined,
+            expectedOrigin: undefined,
+            remoteBranches: undefined,
           }
         : {
             repositoryId: undefined,
@@ -369,6 +374,9 @@ function useRepositoryHandlers(fs: DialogFormState, repositories: Repository[]) 
             branch: "",
             baseBranch: undefined,
             branchPolicyId: undefined,
+            checkoutSource: undefined,
+            expectedOrigin: undefined,
+            remoteBranches: undefined,
           };
       fs.updateRepository(key, patch);
       if (wasLocalPath !== isLocalPath) {
@@ -421,6 +429,9 @@ function useProfileAndNameHandlers(fs: DialogFormState) {
   const handleExecutorProfileChange = useCallback(
     (value: string) => {
       fs.setExecutorProfileId(value);
+      fs.setExecutorChoiceTouched?.(true);
+      fs.setAutomaticExecutorRestore?.(null);
+      fs.setFolderOnlyExecutorNotice?.(false);
       syncTaskCreateLastUsed({ executor_profile_id: value });
     },
     [fs],
@@ -538,6 +549,45 @@ export function useDialogHandlers(
     context?.executors ?? [],
     fs.executorProfileId,
   );
+  const currentExecutorType =
+    context?.executors
+      ?.find((executor) => executor.id === fs.executorId)
+      ?.profiles?.find((profile) => profile.id === fs.executorProfileId)?.executor_type ??
+    context?.executors?.find((executor) => executor.id === fs.executorId)?.type;
+  const handleFolderSelectionAdded = useCallback(
+    (wasEmpty: boolean) => {
+      if (!wasEmpty || currentExecutorType !== "worktree") return;
+      fs.setFolderOnlyExecutorNotice?.(true);
+      if (!directLocalExecutorSelection) return;
+      fs.setAutomaticExecutorRestore?.({
+        executorId: fs.executorId,
+        executorProfileId: fs.executorProfileId,
+      });
+      fs.setExecutorId(directLocalExecutorSelection.executorId);
+      fs.setExecutorProfileId(directLocalExecutorSelection.executorProfileId);
+    },
+    [currentExecutorType, directLocalExecutorSelection, fs],
+  );
+  const handleRepositorySelectionAdded = useCallback(
+    (wasFolderOnly: boolean) => {
+      if (!wasFolderOnly || fs.executorChoiceTouched || !fs.automaticExecutorRestore) return;
+      const restore = fs.automaticExecutorRestore;
+      fs.setExecutorId(restore.executorId);
+      fs.setExecutorProfileId(restore.executorProfileId);
+      fs.setAutomaticExecutorRestore?.(null);
+      fs.setFolderOnlyExecutorNotice?.(false);
+    },
+    [fs],
+  );
+  const handleAllWorkspaceSourcesRemoved = useCallback(() => {
+    if (!fs.executorChoiceTouched && fs.automaticExecutorRestore) {
+      const restore = fs.automaticExecutorRestore;
+      fs.setExecutorId(restore.executorId);
+      fs.setExecutorProfileId(restore.executorProfileId);
+    }
+    fs.setAutomaticExecutorRestore?.(null);
+    fs.setFolderOnlyExecutorNotice?.(false);
+  }, [fs]);
   const handleLocalRepositoryCreated = useCallback(
     (rowKey: string, repository: Repository) => {
       if (!context?.workspaceId) return;
@@ -561,5 +611,8 @@ export function useDialogHandlers(
     ...gh,
     directLocalExecutorSelection,
     handleLocalRepositoryCreated,
+    onFolderSelectionAdded: handleFolderSelectionAdded,
+    onRepositorySelectionAdded: handleRepositorySelectionAdded,
+    onAllWorkspaceSourcesRemoved: handleAllWorkspaceSourcesRemoved,
   };
 }

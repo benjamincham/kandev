@@ -249,6 +249,7 @@ export type RepoChipProps = {
   isLocalExecutor?: boolean;
   branchValue?: string;
   savedBaseBranch?: string;
+  remoteBranches?: import("@/lib/types/http").Branch[];
   /**
    * True while preferredDefaultBranch is being resolved. Renders a
    * "Loading branch…" placeholder so the chip doesn't briefly show an empty
@@ -292,6 +293,7 @@ function useRepoChipData({
   userSettingsLoaded,
   branchValue,
   savedBaseBranch,
+  remoteBranches,
   isLocalExecutor,
 }: Pick<
   RepoChipProps,
@@ -308,6 +310,7 @@ function useRepoChipData({
   | "userSettingsLoaded"
   | "branchValue"
   | "savedBaseBranch"
+  | "remoteBranches"
   | "isLocalExecutor"
 >) {
   const filteredRepos = useMemo(
@@ -336,6 +339,8 @@ function useRepoChipData({
     preferredDefaultBranchLoading,
     lastUsedBranch,
     userSettingsLoaded,
+    remoteBranches,
+    isLocalExecutor,
   });
 
   const repoOptions: PillOption[] = useMemo(
@@ -388,6 +393,7 @@ export function RepoChip(props: RepoChipProps) {
     isLocalExecutor,
     branchValue,
     savedBaseBranch,
+    remoteBranches,
   } = props;
   const data = useRepoChipData({
     row,
@@ -400,6 +406,7 @@ export function RepoChip(props: RepoChipProps) {
     isLocalExecutor,
     branchValue: branchValue ?? row.branch,
     savedBaseBranch,
+    remoteBranches,
     preferredDefaultBranch,
     preferredDefaultBranchLoading,
     lastUsedBranch,

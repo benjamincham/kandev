@@ -8,6 +8,7 @@ import type {
   Task,
   TaskPriority,
   CreateTaskResponse,
+  Branch,
 } from "@/lib/types/http";
 import type { createTask } from "@/lib/api";
 import type { UseBranchesByURLResult } from "@/hooks/domains/github/use-branches-by-url";
@@ -34,6 +35,7 @@ import type { useToast } from "@/components/toast-provider";
 import type { TaskCreateLaunchPreview } from "@/components/task-create-dialog-launch-preview";
 import type { TaskRemoteProviderReadinessMap } from "@/components/task-create-dialog-remote-provider-readiness";
 import type { TaskCreateLastUsedSourceApi } from "@/lib/types/http-user-settings";
+import type { ExecutorSourcePolicy } from "@/components/task-create-dialog-executor-source-policy";
 
 export type TaskCreateSubmit = (
   payload: Parameters<typeof createTask>[0],
@@ -136,6 +138,12 @@ export type TaskRepoRow = {
   baseBranch?: string;
   /** Saved repository policy selected for this row. */
   branchPolicyId?: string;
+  /** Explicit remote-origin checkout mode for a remote executor. */
+  checkoutSource?: "remote_origin";
+  /** Credential-free origin identity confirmed by the backend. */
+  expectedOrigin?: string;
+  /** Branches read from the verified origin while remote clone mode is active. */
+  remoteBranches?: Branch[];
 };
 
 /** A workspace or host-local repository in the ordered task draft. */
@@ -321,6 +329,10 @@ export type DialogComputedValues = {
   agentProfileOptions: ReturnType<typeof useAgentProfileOptions>;
   executorProfileOptions: ReturnType<typeof useExecutorProfileOptions>;
   executorHint: string | null;
+  executorSourcePolicy: ExecutorSourcePolicy;
+  executorSourceNotice: string | null;
+  sourcePolicyReason: string | null;
+  folderDisabledReason?: string;
   isLocalExecutor: boolean;
   headerRepositoryOptions: ReturnType<typeof useRepositoryOptions>["headerRepositoryOptions"];
   agentProfilesLoading: boolean;
@@ -516,6 +528,17 @@ export type DialogFormState = {
   setExecutorId: (v: string) => void;
   executorProfileId: string;
   setExecutorProfileId: (v: string) => void;
+  /** True after the user explicitly changes the executor in this draft. */
+  executorChoiceTouched?: boolean;
+  setExecutorChoiceTouched?: (touched: boolean) => void;
+  /** Worktree selection retained while an automatic folder-only switch is active. */
+  automaticExecutorRestore?: { executorId: string; executorProfileId: string } | null;
+  setAutomaticExecutorRestore?: (
+    value: { executorId: string; executorProfileId: string } | null,
+  ) => void;
+  /** Shows the one-time folder-only executor adjustment notice. */
+  folderOnlyExecutorNotice?: boolean;
+  setFolderOnlyExecutorNotice?: (visible: boolean) => void;
   /**
    * Writes executorProfileId from an autopick/stored-profile seed effect
    * only, never from the user's own picker. This is the sole writer
@@ -662,6 +685,7 @@ export type SubmitHandlersDeps = {
   repositoryLocalPath: string;
   /** When true, the task is created with no repositories (repo-less mode). */
   noRepository: boolean;
+  sourcePolicyInvalid?: boolean;
   /** Predecessor task IDs to link at creation time. */
   blockedBy?: string[];
   /** Edit-mode dependency draft and persistence state. */
@@ -731,6 +755,9 @@ export type DialogFormBodyProps = {
   onToggleFreshBranch: (enabled: boolean) => void;
   onToggleNoRepository?: () => void;
   onWorkspacePathChange: (value: string) => void;
+  onFolderSelectionAdded?: (wasEmpty: boolean) => void;
+  onRepositorySelectionAdded?: (wasFolderOnly: boolean) => void;
+  onAllWorkspaceSourcesRemoved?: () => void;
   /** Repository sets available in this workspace, and how to apply or define one. */
   repositorySets?: TaskRepositorySetsConfig;
   localRepositoryCreation?: {
@@ -755,6 +782,9 @@ export type DialogFormBodyProps = {
    * branch for local execution; fresh-branch mode unlocks it).
    */
   isLocalExecutor: boolean;
+  executorSourcePolicy: ExecutorSourcePolicy;
+  executorSourceNotice?: string | null;
+  folderDisabledReason?: string;
   agentCompatState: AgentCompatState;
   /** Label of the effective agent profile, for the incompatible-agent note. */
   selectedAgentProfileName: string | null;

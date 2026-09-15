@@ -1,14 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { IconCheck, IconFolderPlus, IconPlus, IconRefresh } from "@tabler/icons-react";
+import { IconFolderPlus, IconPlus, IconRefresh } from "@tabler/icons-react";
 import { Button } from "@kandev/ui/button";
-import { Spinner } from "@kandev/ui/spinner";
 import { MobilePickerSheet } from "@/components/task/mobile/mobile-picker-sheet";
 import { useTouchDrawer } from "@/hooks/use-compact-task-chrome";
 import { useTaskCreateDialogPopoverContainer } from "@/hooks/use-task-create-dialog-popover-container";
 import { Popover, PopoverContent, PopoverTrigger } from "@kandev/ui/popover";
-import type { LocalRepository, Repository } from "@/lib/types/http";
+import type { Branch, LocalRepository, Repository } from "@/lib/types/http";
+import {
+  useRepositoryCloneSource,
+  type RepositoryCloneSourceState,
+} from "@/hooks/domains/repositories/use-repository-clone-source";
 import type {
   RemoteRepository,
   RemoteRepositoryProvider,
@@ -29,17 +32,27 @@ import {
   useRepositoryPickerSource,
   type RepositorySource,
 } from "@/components/task-create-dialog-repository-picker-source";
+import {
+  LocalChoiceList,
+  RemoteChoiceList,
+  type RepositoryPickerLocalChoice,
+} from "@/components/task-create-dialog-repository-picker-results";
 
 export type LocalRepositoryChoice = {
   repositoryId?: string;
   localPath?: string;
   defaultBranch?: string;
+  checkoutSource?: "remote_origin";
+  expectedOrigin?: string;
+  remoteBranches?: Branch[];
 };
 
 export type RepositoryPickerProps = {
   repositories: Repository[];
   discoveredRepositories: LocalRepository[];
   accessible: UseRemoteRepositoriesResult;
+  workspaceId?: string | null;
+  remoteOriginMode?: boolean;
   /** Workspace or task scope used to remember the last eligible source tab. */
   scopeKey?: string;
   onSelectLocal: (choice: LocalRepositoryChoice) => void;
@@ -59,6 +72,8 @@ export function RepositoryPicker({
   repositories,
   discoveredRepositories,
   accessible,
+  workspaceId,
+  remoteOriginMode = false,
   scopeKey,
   onSelectLocal,
   onSelectRemote,
@@ -86,6 +101,20 @@ export function RepositoryPicker({
     () => filterLocalChoices(repositories, discoveredRepositories, query),
     [discoveredRepositories, query, repositories],
   );
+  const cloneSourceCandidates = useMemo(
+    () =>
+      localChoices.map((choice) => ({
+        key: choice.key,
+        repositoryId: choice.choice.repositoryId,
+        localPath: choice.choice.localPath,
+      })),
+    [localChoices],
+  );
+  const cloneSources = useRepositoryCloneSource(
+    workspaceId ?? null,
+    cloneSourceCandidates,
+    Boolean(remoteOriginMode && activeSource === "local"),
+  );
   const remoteChoices = useMemo(
     () =>
       accessible.repos.filter(
@@ -101,13 +130,7 @@ export function RepositoryPicker({
       ? undefined
       : accessible.sourceErrors?.find((entry) => entry.provider === activeSource)?.error;
   const isRefreshing = refreshing || accessible.loading;
-  const commitURL = () => {
-    const trimmed = query.trim();
-    if (!isSupportedRemoteURL(trimmed, matchesURL)) return false;
-    onPasteRemote(trimmed);
-    setQuery("");
-    return true;
-  };
+  const commitURL = () => commitRemoteURL(query, matchesURL, onPasteRemote, () => setQuery(""));
   return (
     <div className="flex min-w-0 flex-col" data-testid="task-repository-picker">
       {unavailableProvider ? <RepositorySourceUnavailableNotice onRefresh={onRefresh} /> : null}
@@ -131,12 +154,17 @@ export function RepositoryPicker({
         activeSource={activeSource}
         mobile={mobile}
         localChoices={localChoices}
+        cloneSourceStates={cloneSources.states}
+        remoteOriginMode={remoteOriginMode}
         remoteChoices={remoteChoices}
         loading={accessible.loading}
         error={activeError}
         onSelectLocal={onSelectLocal}
         onSelectRemote={onSelectRemote}
-        onRefresh={onRefresh}
+        onRefresh={() => {
+          cloneSources.refresh();
+          onRefresh();
+        }}
       />
     </div>
   );
@@ -284,6 +312,8 @@ function RepositoryPickerResults({
   activeSource,
   mobile,
   localChoices,
+  cloneSourceStates,
+  remoteOriginMode,
   remoteChoices,
   loading,
   error,
@@ -294,6 +324,8 @@ function RepositoryPickerResults({
   activeSource: RepositorySource;
   mobile: boolean;
   localChoices: Array<{ key: string; label: string; path: string; choice: LocalRepositoryChoice }>;
+  cloneSourceStates: Record<string, RepositoryCloneSourceState>;
+  remoteOriginMode?: boolean;
   remoteChoices: RemoteRepository[];
   loading: boolean;
   error?: Error;
@@ -310,7 +342,12 @@ function RepositoryPickerResults({
       data-testid="task-repository-picker-results"
     >
       {activeSource === "local" ? (
-        <LocalChoiceList choices={localChoices} onSelect={onSelectLocal} />
+        <LocalChoiceList
+          choices={localChoices}
+          cloneSourceStates={cloneSourceStates}
+          remoteOriginMode={remoteOriginMode}
+          onSelect={onSelectLocal}
+        />
       ) : (
         <RemoteChoiceList
           repositories={remoteChoices}
@@ -457,7 +494,7 @@ function filterLocalChoices(
   repositories: Repository[],
   discoveredRepositories: LocalRepository[],
   query: string,
-): Array<{ key: string; label: string; path: string; choice: LocalRepositoryChoice }> {
+): RepositoryPickerLocalChoice[] {
   const needle = query.trim().toLowerCase();
   const localRepositories = repositories.filter(
     (repository) => repository.local_path.trim() !== "",
@@ -484,106 +521,6 @@ function filterLocalChoices(
   );
 }
 
-function LocalChoiceList({
-  choices,
-  onSelect,
-}: {
-  choices: Array<{ key: string; label: string; path: string; choice: LocalRepositoryChoice }>;
-  onSelect: (choice: LocalRepositoryChoice) => void;
-}) {
-  const { t } = useTranslation();
-  if (choices.length === 0) {
-    return <EmptyPickerMessage message={t("task:noRepositoriesFound")} />;
-  }
-  return (
-    <div>
-      {choices.map((choice) => (
-        <button
-          type="button"
-          key={choice.key}
-          onClick={() => onSelect(choice.choice)}
-          data-testid="task-repository-local-option"
-          className="flex min-h-11 w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-muted cursor-pointer sm:min-h-8"
-        >
-          <span className="flex min-w-0 flex-col">
-            <span className="truncate">{choice.label}</span>
-            {choice.path ? (
-              <span className="truncate text-[10px] text-muted-foreground">{choice.path}</span>
-            ) : null}
-          </span>
-          <IconCheck className="size-4 shrink-0 opacity-0" aria-hidden="true" />
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function RemoteChoiceList({
-  repositories,
-  loading,
-  error,
-  onPick,
-  onRetry,
-}: {
-  repositories: RemoteRepository[];
-  loading: boolean;
-  error?: Error;
-  onPick: (repository: RemoteRepository) => void;
-  onRetry: () => void;
-}) {
-  const { t } = useTranslation();
-  if (loading && repositories.length === 0) {
-    return (
-      <div className="flex items-center gap-2 px-2 py-3 text-xs text-muted-foreground">
-        <Spinner className="size-3" />
-        <span>{t("task:loadingRepositories")}</span>
-      </div>
-    );
-  }
-  if (error) {
-    return (
-      <div
-        className="flex items-center justify-between gap-2 px-2 py-3 text-xs text-destructive"
-        role="alert"
-      >
-        <span className="min-w-0 break-words">
-          {t("task:couldNotLoadRepositories", { message: error.message })}
-        </span>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onRetry}
-          className="min-h-11 shrink-0 cursor-pointer sm:min-h-8"
-        >
-          {t("task:retry")}
-        </Button>
-      </div>
-    );
-  }
-  if (repositories.length === 0)
-    return <EmptyPickerMessage message={t("task:noRepositoriesFound")} />;
-  return (
-    <div>
-      {repositories.map((repository) => (
-        <button
-          type="button"
-          key={`${repository.provider}:${repository.id}`}
-          onClick={() => onPick(repository)}
-          data-testid="task-repository-remote-option"
-          className="flex min-h-11 w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-muted cursor-pointer sm:min-h-8"
-        >
-          <RemoteRepositoryProviderIcon provider={repository.provider} />
-          <span className="truncate">{repository.fullName}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function EmptyPickerMessage({ message }: { message: string }) {
-  return <div className="px-2 py-3 text-xs text-muted-foreground">{message}</div>;
-}
-
 function matchesRepositoryQuery(repository: RemoteRepository, query: string): boolean {
   const needle = query.trim().toLowerCase();
   if (!needle) return true;
@@ -594,4 +531,17 @@ function matchesRepositoryQuery(repository: RemoteRepository, query: string): bo
 
 function isSupportedRemoteURL(value: string, matchesURL: (url: string) => boolean): boolean {
   return Boolean(value && (parseGitHubAnyUrl(value) || matchesURL(value)));
+}
+
+function commitRemoteURL(
+  query: string,
+  matchesURL: (url: string) => boolean,
+  onPasteRemote: (url: string) => void,
+  clearQuery: () => void,
+): boolean {
+  const trimmed = query.trim();
+  if (!isSupportedRemoteURL(trimmed, matchesURL)) return false;
+  onPasteRemote(trimmed);
+  clearQuery();
+  return true;
 }

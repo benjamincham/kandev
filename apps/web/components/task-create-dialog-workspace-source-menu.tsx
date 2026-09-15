@@ -35,6 +35,7 @@ export type WorkspaceSourceMenuProps = {
   discoveredRepositories: LocalRepository[];
   accessible: UseRemoteRepositoriesResult;
   workspaceId: string | null;
+  remoteOriginMode?: boolean;
   selectionsCount?: number;
   repositoryLocked?: boolean;
   folderAvailable: boolean;
@@ -231,6 +232,8 @@ function SourceViewBody({
         repositories={props.repositories}
         discoveredRepositories={props.discoveredRepositories}
         accessible={props.accessible}
+        workspaceId={props.workspaceId}
+        remoteOriginMode={props.remoteOriginMode}
         scopeKey={props.workspaceId ?? ""}
         onSelectLocal={(choice) => {
           props.onSelectLocal(choice);

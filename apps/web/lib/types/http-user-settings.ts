@@ -160,6 +160,8 @@ export type TaskCreateLastUsedSourceApi = {
   provider_repo_id?: string;
   provider_owner?: string;
   provider_name?: string;
+  checkout_source?: "remote_origin";
+  expected_origin?: string;
   base_branch?: string;
   checkout_branch?: string;
   branch_policy_id?: string;

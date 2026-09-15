@@ -85,6 +85,8 @@ export async function createTask(
       provider_repo_id?: string;
       provider_owner?: string;
       provider_name?: string;
+      checkout_source?: "remote_origin";
+      expected_origin?: string;
       fresh_branch?: boolean;
       new_branch_name?: string;
       confirm_discard?: boolean;

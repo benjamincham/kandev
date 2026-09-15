@@ -5,9 +5,15 @@ import type { UseRemoteRepositoriesResult } from "@/hooks/domains/integrations/u
 import type { Repository } from "@/lib/types/http";
 import { RepositoryPicker } from "./task-create-dialog-repository-picker";
 
+const inspectRepositoryCloneSource = vi.hoisted(() => vi.fn());
+const LOCAL_OPTION_TEST_ID = "task-repository-local-option";
+
+vi.mock("@/lib/api/domains/workspace-api", () => ({ inspectRepositoryCloneSource }));
+
 afterEach(() => {
   cleanup();
   sessionStorage.clear();
+  inspectRepositoryCloneSource.mockReset();
 });
 
 const workspaceRepository = {
@@ -121,7 +127,7 @@ describe("RepositoryPicker", () => {
       </TooltipProvider>,
     );
 
-    fireEvent.click(screen.getByTestId("task-repository-local-option"));
+    fireEvent.click(screen.getByTestId(LOCAL_OPTION_TEST_ID));
 
     expect(onSelectLocal).toHaveBeenCalledWith({
       repositoryId: "repo-local",
@@ -236,12 +242,82 @@ describe("RepositoryPicker local source filtering", () => {
       </TooltipProvider>,
     );
 
-    expect(screen.getAllByTestId("task-repository-local-option")).toHaveLength(1);
+    expect(screen.getAllByTestId(LOCAL_OPTION_TEST_ID)).toHaveLength(1);
     expect(screen.getByText("local-provider-app")).toBeTruthy();
     expect(screen.queryByText("remote-only-app")).toBeNull();
-    fireEvent.click(screen.getByTestId("task-repository-local-option"));
+    fireEvent.click(screen.getByTestId(LOCAL_OPTION_TEST_ID));
     expect(onSelectLocal).toHaveBeenCalledWith(
       expect.objectContaining({ repositoryId: "repo-local-provider" }),
     );
+  });
+});
+
+describe("RepositoryPicker remote origin selection", () => {
+  it("only enables local choices after a remote origin is verified", async () => {
+    inspectRepositoryCloneSource.mockResolvedValue({
+      ready: true,
+      origin: "https://github.com/acme/local-app.git",
+      current_branch: "feature/local",
+      default_branch: "main",
+      branches: [
+        { name: "main", type: "remote", remote: "origin" },
+        { name: "release", type: "remote", remote: "origin" },
+      ],
+    });
+    const onSelectLocal = vi.fn();
+    render(
+      <TooltipProvider>
+        <RepositoryPicker
+          repositories={[workspaceRepository]}
+          discoveredRepositories={[]}
+          accessible={accessible()}
+          workspaceId="workspace-1"
+          remoteOriginMode
+          onSelectLocal={onSelectLocal}
+          onSelectRemote={vi.fn()}
+          onPasteRemote={vi.fn()}
+          onRefresh={vi.fn()}
+        />
+      </TooltipProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText("Clone from remote")).toBeTruthy());
+    fireEvent.click(screen.getByTestId(LOCAL_OPTION_TEST_ID));
+    expect(onSelectLocal).toHaveBeenCalledWith({
+      repositoryId: "repo-local",
+      defaultBranch: "main",
+      checkoutSource: "remote_origin",
+      expectedOrigin: "https://github.com/acme/local-app.git",
+      remoteBranches: [
+        { name: "main", type: "remote", remote: "origin" },
+        { name: "release", type: "remote", remote: "origin" },
+      ],
+    });
+  });
+
+  it("keeps a local choice disabled when its origin is unavailable", async () => {
+    inspectRepositoryCloneSource.mockResolvedValue({
+      ready: false,
+      reason: "missing_origin",
+      branches: [],
+    });
+    render(
+      <TooltipProvider>
+        <RepositoryPicker
+          repositories={[workspaceRepository]}
+          discoveredRepositories={[]}
+          accessible={accessible()}
+          workspaceId="workspace-1"
+          remoteOriginMode
+          onSelectLocal={vi.fn()}
+          onSelectRemote={vi.fn()}
+          onPasteRemote={vi.fn()}
+          onRefresh={vi.fn()}
+        />
+      </TooltipProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText("No usable remote origin.")).toBeTruthy());
+    expect(screen.getByTestId(LOCAL_OPTION_TEST_ID)).toHaveProperty("disabled", true);
   });
 });

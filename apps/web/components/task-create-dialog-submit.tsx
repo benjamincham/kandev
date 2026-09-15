@@ -329,6 +329,7 @@ export function useTaskSubmitHandlers({
   isLocalExecutor,
   repositoryLocalPath,
   noRepository,
+  sourcePolicyInvalid,
   workspacePath,
   priority,
   blockedBy,
@@ -402,6 +403,7 @@ export function useTaskSubmitHandlers({
         remoteRepos: useRemote ? remoteRepos : undefined,
         agentProfileId,
         noRepository: effectiveNoRepository,
+        sourcePolicyInvalid,
       }),
     [
       workspaceId,
@@ -412,6 +414,7 @@ export function useTaskSubmitHandlers({
       remoteRepos,
       agentProfileId,
       effectiveNoRepository,
+      sourcePolicyInvalid,
       autoTitle,
       selections,
     ],

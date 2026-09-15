@@ -34,12 +34,16 @@ import { FolderSelectionChip } from "@/components/task-create-dialog-workspace-f
 import { useTouchDrawer } from "@/hooks/use-compact-task-chrome";
 import { computeBranchIntent } from "@/components/task-create-dialog-branch-utils";
 import { isPickerRemoteProviderUnavailable } from "@/components/task-create-dialog-remote-provider-readiness";
+import type { ExecutorSourcePolicy } from "@/components/task-create-dialog-executor-source-policy";
+import { useTranslation } from "react-i18next";
 
 export type MixedRepositoryChipsProps = {
   fs: DialogFormState;
   repositories: Repository[];
   workspaceId: string | null;
   isLocalExecutor: boolean;
+  executorSourcePolicy?: ExecutorSourcePolicy;
+  folderDisabledReason?: string;
   repositoryLocked?: boolean;
   branchLocked?: boolean;
   freshBranchEnabled?: boolean;
@@ -57,6 +61,9 @@ export type MixedRepositoryChipsProps = {
   onRefreshRepositories?: () => void;
   repositoriesRefreshing?: boolean;
   repositorySets?: TaskRepositorySetsConfig;
+  onFolderSelectionAdded?: (wasEmpty: boolean) => void;
+  onRepositorySelectionAdded?: (wasFolderOnly: boolean) => void;
+  onAllWorkspaceSourcesRemoved?: () => void;
 };
 
 /** Renders the ordered local and remote rows with one shared source picker. */
@@ -70,12 +77,15 @@ export function MixedRepositoryChips(props: MixedRepositoryChipsProps) {
   useRemoteProviderReadiness(props.fs, accessible);
 
   useRemoteRowResolution(props.fs, remoteRows);
-  const actions = useMixedRepositoryActions(
-    props.fs,
-    selections.length,
-    props.isLocalExecutor,
-    props.onCreateRepository,
-  );
+  const actions = useMixedRepositoryActions({
+    fs: props.fs,
+    selectionCount: selections.length,
+    isLocalExecutor: props.isLocalExecutor,
+    onCreateRepository: props.onCreateRepository,
+    onFolderSelectionAdded: props.onFolderSelectionAdded,
+    onRepositorySelectionAdded: props.onRepositorySelectionAdded,
+    onAllWorkspaceSourcesRemoved: props.onAllWorkspaceSourcesRemoved,
+  });
   const selectionRows = (
     <RepositorySelectionRows
       selections={selections}
@@ -123,12 +133,14 @@ export function MixedRepositoryChips(props: MixedRepositoryChipsProps) {
       discoveredRepositories={props.fs.discoveredRepositories}
       accessible={accessible}
       workspaceId={props.workspaceId}
+      remoteOriginMode={props.executorSourcePolicy?.capabilities.requiresCloneableLocalRepository}
       selectionRows={selectionRows}
       freshBranchToggle={props.freshBranchToggle}
       branchLocked={props.branchLocked}
       repositoryLocked={props.repositoryLocked}
       repositorySets={props.repositorySets}
-      folderAvailable={props.isLocalExecutor}
+      folderAvailable={props.executorSourcePolicy?.folderAvailable ?? props.isLocalExecutor}
+      folderDisabledReason={props.folderDisabledReason}
       onSelectLocal={actions.addLocal}
       onSelectRemote={actions.addRemote}
       onPasteRemote={actions.addPastedRemote}
@@ -304,47 +316,65 @@ function LocalSelectionChip({
     onRowBranchChange(row.key, value);
   };
   return (
-    <RepoChip
-      row={row}
-      workspaceId={workspaceId}
-      repositories={repositories}
-      discoveredRepositories={discoveredRepositories}
-      excludedRepoIds={collectExcludedRepoIds(rows, row, true)}
-      selectedElsewhere={collectSelectedRepoIdentities(rows, row)}
-      preferredDefaultBranch={isLocalExecutor ? fs.currentLocalBranch : undefined}
-      preferredDefaultBranchLoading={isLocalExecutor ? fs.currentLocalBranchLoading : false}
-      lastUsedBranch={lastUsedBranch}
-      userSettingsLoaded={userSettingsLoaded}
-      isLocalExecutor={isLocalExecutor}
-      branchValue={isLocalExecutor ? row.branch : row.baseBranch || row.branch}
-      savedBaseBranch={row.baseBranch}
-      branchPolicyDisabledReason={branchPolicyDisabledReason}
-      onRepositoryChange={(value) => onRowRepositoryChange(row.key, value)}
-      onBranchChange={handleBranchChange}
-      onBaseBranchChange={(value) =>
-        fs.updateRepository(row.key, { baseBranch: value || undefined })
-      }
-      onPolicyChange={
-        onRowPolicyChange
-          ? (policyId, baseBranch) => onRowPolicyChange(row.key, policyId, baseBranch)
-          : undefined
-      }
-      onPolicySelected={onPolicySelected}
-      showBranchPolicies
-      showDiscoveryControls
-      onCreateRepository={onCreateRepository ? () => onCreateRepository(row.key) : undefined}
-      onRefreshRepositories={onRefreshRepositories}
-      repositoriesRefreshing={repositoriesRefreshing}
-      repositoryLocked={repositoryLocked}
-      onRemove={onRemove}
-      branchIntent={computeBranchIntent({
-        isLocalExecutor,
-        rowBranch: isLocalExecutor ? row.branch : row.baseBranch || row.branch,
-        currentLocalBranch: fs.currentLocalBranch,
-        freshBranchEnabled: !!freshBranchEnabled,
-      })}
-      branchLocked={branchLocked}
-    />
+    <div className="flex max-w-full flex-col items-start gap-1">
+      <RepoChip
+        row={row}
+        workspaceId={workspaceId}
+        repositories={repositories}
+        discoveredRepositories={discoveredRepositories}
+        excludedRepoIds={collectExcludedRepoIds(rows, row, true)}
+        selectedElsewhere={collectSelectedRepoIdentities(rows, row)}
+        preferredDefaultBranch={isLocalExecutor ? fs.currentLocalBranch : undefined}
+        preferredDefaultBranchLoading={isLocalExecutor ? fs.currentLocalBranchLoading : false}
+        lastUsedBranch={lastUsedBranch}
+        userSettingsLoaded={userSettingsLoaded}
+        isLocalExecutor={isLocalExecutor}
+        branchValue={isLocalExecutor ? row.branch : row.baseBranch || row.branch}
+        savedBaseBranch={row.baseBranch}
+        remoteBranches={row.remoteBranches}
+        branchPolicyDisabledReason={branchPolicyDisabledReason}
+        onRepositoryChange={(value) => onRowRepositoryChange(row.key, value)}
+        onBranchChange={handleBranchChange}
+        onBaseBranchChange={(value) =>
+          fs.updateRepository(row.key, { baseBranch: value || undefined })
+        }
+        onPolicyChange={
+          onRowPolicyChange
+            ? (policyId, baseBranch) => onRowPolicyChange(row.key, policyId, baseBranch)
+            : undefined
+        }
+        onPolicySelected={onPolicySelected}
+        showBranchPolicies
+        showDiscoveryControls
+        onCreateRepository={onCreateRepository ? () => onCreateRepository(row.key) : undefined}
+        onRefreshRepositories={onRefreshRepositories}
+        repositoriesRefreshing={repositoriesRefreshing}
+        repositoryLocked={repositoryLocked}
+        onRemove={onRemove}
+        branchIntent={computeBranchIntent({
+          isLocalExecutor,
+          rowBranch: isLocalExecutor ? row.branch : row.baseBranch || row.branch,
+          currentLocalBranch: fs.currentLocalBranch,
+          freshBranchEnabled: !!freshBranchEnabled,
+        })}
+        branchLocked={branchLocked}
+      />
+      <LocalSelectionChipFooter checkoutSource={row.checkoutSource} />
+    </div>
+  );
+}
+
+function LocalSelectionChipFooter({
+  checkoutSource,
+}: {
+  checkoutSource?: TaskRepoRow["checkoutSource"];
+}) {
+  const { t } = useTranslation();
+  if (checkoutSource !== "remote_origin") return null;
+  return (
+    <span className="text-[10px] text-muted-foreground" data-testid="clone-from-remote-label">
+      {t("task:cloneFromRemote")}
+    </span>
   );
 }
 

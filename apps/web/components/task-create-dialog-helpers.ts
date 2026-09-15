@@ -13,6 +13,7 @@ import type { UsePRInfoByURLResult } from "@/hooks/domains/github/use-pr-info-by
 import { parseGitHubAnyUrl } from "@/hooks/domains/github/use-pr-info-by-url";
 import { selectPreferredBranch } from "@/lib/utils";
 import { branchOptionValue } from "@/components/branch-picker-options";
+import { splitLocalExecutorBranches } from "@/components/task-create-dialog-branch-utils";
 import { createDebugLogger } from "@/lib/debug/log";
 import { useContextFilesStore } from "@/lib/state/context-files-store";
 import { linkToTask } from "@/lib/links";
@@ -305,6 +306,7 @@ export function validateCreateInputs(inputs: {
   remoteProviderReadiness?: import("@/components/task-create-dialog-remote-provider-readiness").TaskRemoteProviderReadinessMap;
   agentProfileId: string;
   noRepository?: boolean;
+  sourcePolicyInvalid?: boolean;
 }): boolean {
   const selections =
     inputs.selections ?? resolveLegacySelections(inputs.repositories, inputs.remoteRepos ?? []);
@@ -315,6 +317,7 @@ export function validateCreateInputs(inputs: {
   ) {
     return false;
   }
+  if (inputs.sourcePolicyInvalid) return false;
   return Boolean(
     (inputs.autoTitle ? inputs.trimmedDescription : inputs.trimmedTitle) &&
     inputs.workspaceId &&
@@ -540,6 +543,8 @@ function repositoryIdentityFields(repository: CreateTaskRepositoryPayload): Repo
     ...(repository.provider_repo_id ? { provider_repo_id: repository.provider_repo_id } : {}),
     ...(repository.provider_owner ? { provider_owner: repository.provider_owner } : {}),
     ...(repository.provider_name ? { provider_name: repository.provider_name } : {}),
+    ...(repository.checkout_source ? { checkout_source: repository.checkout_source } : {}),
+    ...(repository.expected_origin ? { expected_origin: repository.expected_origin } : {}),
   };
 }
 
@@ -591,6 +596,8 @@ function buildLocalRepositoryPayloadRow(
       ...(row.branchPolicyId ? { branch_policy_id: row.branchPolicyId } : {}),
       base_branch: branches.base_branch,
       checkout_branch: branches.checkout_branch,
+      ...(row.checkoutSource ? { checkout_source: row.checkoutSource } : {}),
+      ...(row.expectedOrigin ? { expected_origin: row.expectedOrigin } : {}),
       ...fresh,
     };
   }
@@ -600,6 +607,8 @@ function buildLocalRepositoryPayloadRow(
     checkout_branch: branches.checkout_branch,
     local_path: row.localPath,
     default_branch: defaultBranch || undefined,
+    ...(row.checkoutSource ? { checkout_source: row.checkoutSource } : {}),
+    ...(row.expectedOrigin ? { expected_origin: row.expectedOrigin } : {}),
     ...fresh,
   };
 }
@@ -735,32 +744,3 @@ function resolveRowDefaultBranch(
  * For non-local executors (worktree-based): keep the historical shape where
  * `base_branch=rowBranch` (the worktree creates a new branch off of it).
  */
-function splitLocalExecutorBranches(args: {
-  rowBranch?: string;
-  defaultBranch?: string;
-  baseBranch?: string;
-  isLocalExecutor: boolean;
-}): { base_branch: string | undefined; checkout_branch: string | undefined } {
-  // Without a known default_branch we can't anchor base_branch to the
-  // integration ref — and using rowBranch as a stand-in reproduces the
-  // exact bug this PR fixes (changes panel collapses to HEAD on refresh).
-  // Fall through to the legacy non-split shape: a workspace repo with an
-  // unset default_branch is no worse off than before, and the backend's
-  // resolveRepoInput probe will populate it on the next CreateRepository
-  // call. Wait for that probe rather than synthesizing a guess here.
-  if (!args.isLocalExecutor) {
-    return {
-      base_branch: args.baseBranch || args.rowBranch || undefined,
-      checkout_branch: undefined,
-    };
-  }
-  if (!args.defaultBranch) {
-    return {
-      base_branch: args.baseBranch || args.rowBranch || undefined,
-      checkout_branch: args.baseBranch ? args.rowBranch || undefined : undefined,
-    };
-  }
-  const base = args.baseBranch || args.defaultBranch;
-  const checkout = args.rowBranch && args.rowBranch !== base ? args.rowBranch : undefined;
-  return { base_branch: args.baseBranch || base, checkout_branch: checkout };
-}

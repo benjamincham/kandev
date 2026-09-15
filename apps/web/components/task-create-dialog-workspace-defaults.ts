@@ -81,6 +81,8 @@ function localSelection(
       branch: source.checkout_branch ?? source.base_branch ?? "",
       ...(source.base_branch ? { baseBranch: source.base_branch } : {}),
       ...(source.branch_policy_id ? { branchPolicyId: source.branch_policy_id } : {}),
+      ...(source.checkout_source ? { checkoutSource: source.checkout_source } : {}),
+      ...(source.expected_origin ? { expectedOrigin: source.expected_origin } : {}),
     },
   ];
 }

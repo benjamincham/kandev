@@ -7,7 +7,8 @@ requirements:
   - REQ-TASKS-MIXED-REPOSITORIES-003
   - REQ-TASKS-MIXED-REPOSITORIES-004
   - REQ-TASKS-MIXED-REPOSITORIES-005
-updated: 2026-09-14
+  - REQ-TASKS-MIXED-REPOSITORIES-006
+updated: 2026-09-15
 ---
 
 # Mixed Repository Selection System Design
@@ -30,6 +31,7 @@ by integrations and plugins. Sets remain owned by workspaces.
 | REQ-TASKS-MIXED-REPOSITORIES-003 | Consumers and sets, Mobile composition, Verification |
 | REQ-TASKS-MIXED-REPOSITORIES-004 | Creation extension: draft and transport, persistence and first launch, shared UI |
 | REQ-TASKS-MIXED-REPOSITORIES-005 | Creation extension: last-used state |
+| REQ-TASKS-MIXED-REPOSITORIES-006 | Executor-aware source policy below |
 
 ## Current implementation
 
@@ -367,3 +369,133 @@ flows. See the [workspace contents plan](../../../plans/workspace-contents-creat
 The completed mixed-repository package retains its historical evidence; it does
 not prove this extension. Reuse the [attachment design](attach-workspace-sources.md)
 and [runtime source decision](../../../decisions/2026-07-22-runtime-mutable-task-workspace-sources.md).
+
+## Executor-aware source policy (requirement 006)
+
+This implemented extension supersedes the earlier prohibition on all automatic
+executor changes only for the visible folder-only transitions below. It extends
+[the completed workspace contents package](../../../plans/workspace-contents-creation/plan.md).
+Tasks still owns creation intent; runtime adapters own materialization. No new
+executor, folder transport, or repository-count capability is introduced.
+
+### Capabilities and transition ownership
+
+`useIsLocalExecutor` in `task-create-dialog-options.tsx` intentionally identifies
+in-place repository semantics (`local` / `local_pc`). Do not broaden it to include
+Worktree: its other callers control branch checkout behavior. Introduce one shared
+source-policy derivation next to the task-create computed state. It consumes the
+resolved executor/profile, loading state, source composition, and existing executor
+capabilities, and returns folder browsing eligibility, repository materialization
+mode, per-row errors, and helper-copy keys. Unknown executor state is distinct
+from known unsupported state. Avoid separate desktop/mobile allowlists.
+
+Local and Worktree allow host-folder browsing. Non-host execution (including local
+Docker, SSH, Sprites and other supported isolated runtimes) disables it. Backend
+`validateWorkspaceFoldersForExecutor` already allows Local/Local PC/Worktree.
+Retain the same boundary at creation preflight; do not rely only on launch-time
+rejection. Resolve profile availability through existing executor policy, not the
+first array element or a hard-coded executor ID.
+
+Commit selection and its folder-only adjustment as one coordinated form action.
+On folder commit with zero repositories and Worktree selected, choose eligible
+Local and issue a localized inline/toast notice. Cancel has no effect. Removing
+the last repository with folders remaining uses the same action. Record transient
+provenance `{reason: folder-only, priorExecutorId, priorProfileId}` in draft state.
+If a repository is subsequently added (including by a set), restore that prior
+Worktree choice only when still eligible and no explicit executor edit intervened.
+An explicit executor edit clears provenance. Do not persist provenance as a portable
+preference. Empty scratch keeps the established fallback and hint behavior.
+
+Repository-plus-folder input keeps Worktree until the user changes it. Local means
+existing checkout semantics; Worktree means independent worktrees from selected
+bases. Never clear branches during a mode change; preserve intent and require
+reselection when a branch cannot be represented by the destination mode. Existing
+fresh-branch and repository-count guards still apply. A manual remote selection
+with existing folders retains them as incompatible rows; it must not immediately
+bounce back to Local. Locked subtask workspace/profile context cannot be changed.
+
+### Local repository origin inspection
+
+`LocalRepository` discovery currently returns path, name, and default branch;
+`LocalRepositoryStatusResponse` exposes current branch and dirty files. Neither
+proves a cloneable remote. Stored `Repository.RemoteURL` and provider metadata are
+useful hints, but may be absent or stale relative to a host checkout.
+
+Add a workspace-authorized read-only inspection operation under the existing task
+repository HTTP/WS handler boundary, with proposed HTTP route
+`POST /api/v1/workspaces/:workspace_id/repository-clone-source` and equivalent WS
+action `repository.clone_source.inspect`. Accept exactly one saved repository ID
+or host checkout path through existing path-access rules. Resolve `origin` from
+the checkout server-side; do not trust a browser-supplied replacement URL or infer
+GitHub identity from a display name. Use existing Git helpers and supported clone
+URL/provider parsing (including supported SSH forms); file URLs, plain host paths,
+unsupported protocols, embedded credentials and missing origins are ineligible.
+A saved repository without a host checkout remains a normal remote source and
+uses existing provider metadata, not this local-origin path.
+
+Return a bounded typed result: readiness (loading is client-owned; ready/unavailable
+or error from the server), sanitized origin identity/display URL, reason code, and
+remote branch choices/default through the existing branch service. Use existing
+provider access checks and executor clone credential provisioning. Where runtime
+reachability cannot be proved from the host, do not claim it was: retain normal
+clone failure recovery at launch. No git fetch/push or local checkout mutation is
+needed to discover origin; remote branch inspection uses existing read operations.
+
+Use an API/domain hook with cancellation and generation fencing keyed by workspace,
+repository identity/path, and effective source mode. Inspect only visible local
+candidates needed for remote selection and selected rows, with bounded concurrency;
+do not run network probes for the whole discovery catalog at boot. Unknown rows
+show checking and are not selectable until ready. Refresh and mode/workspace changes
+invalidate stale results. Local/Worktree browsing must remain usable if remote
+inspection fails. Origin changes require refreshed confirmation, not silent retargeting.
+
+### Remote clone intent and server authority
+
+Keep original row identity and host-path provenance in the draft so returning to
+Local/Worktree restores the same checkout. Derive remote materialization separately;
+do not destructively turn the row into a pasted URL or reuse its local branch list.
+The selected chip and local picker row both show `Clone from remote` while that
+mode is active, plus the exclusion of local-only work in accessible helper copy.
+
+Extend repository entries in `workspace_sources` with a proposed optional
+`checkout_source: "remote_origin"` for this explicit mode; the legacy default
+remains unchanged. Carry the original authorized locator and a sanitized expected
+origin identity. Creation preflight rereads origin, compares it to the inspected
+identity, reuses authoritative provider resolution and verifies the selected remote
+ref. Changed origin yields a recoverable refresh-required error. Do not trust a
+client readiness boolean or send its host local_path to a remote executor as the
+clone source. Map the validated remote descriptor to the existing remote clone
+path, preserving provider host/scope and branch metadata. Reuse existing duplicate
+identity checks for a local-origin row and a separately selected identical remote.
+
+The wire addition applies identically to HTTP/WS, presets, serializer and source
+snapshot adapters. Omission retains existing callers. Reject the flag for folder
+entries or contradictory locators. Persist replayable source intent in backend
+last-used snapshots without credentials or runtime paths; revalidate on restoration.
+Returning to host execution uses original draft provenance. Existing tasks are not
+reinterpreted; this is create-time behavior. A repo-only remote input follows the
+existing remote branch preparation, never host worktree creation or local file copy.
+
+### UI, failures and validation
+
+Replace `folderAvailable={isLocalExecutor}` in desktop and phone consumers with
+shared source policy plus accurate disabled reasons. Repository Set expansion,
+editable New Subtask and restored drafts use that same policy before Start.
+Blocking validation belongs in both button state and submission handler so keyboard
+submission cannot bypass it. Existing source errors remain scoped to stable row keys.
+
+Bottom helper text is composition-aware: Worktree plus folders explains worktree
+creation and live original folders; Local explains direct checkout/folder use; remote
+explains cloning and exclusion of uncommitted/unpushed work. Do not show an affirmative
+launch summary for incompatible input; show recovery instead. Ordinary desktop
+menus retain compact typography, mobile uses the same bottom sheet with fixed
+header/actions and one results scroller. The [plan](../../../plans/executor-aware-workspace-sources/plan.md)
+contains ASCII previews and exact regression commands.
+
+Tests must cover folder-first/repository-first order, explicit executor override,
+unknown-to-resolved capability state, local-only branch selection, origin mutation,
+private-provider access, stale inspection responses, forged remote folder input,
+HTTP/WS parity, and first-launch clone behavior. Preserve the existing user-folder
+cleanup boundary and backend preference ownership (ADRs 0028 and 0041). This reuses
+existing ownership boundaries; the additional wire intent is documented here with
+its compatibility rules rather than creating a second source model or credential store.

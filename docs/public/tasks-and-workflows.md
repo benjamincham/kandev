@@ -192,6 +192,8 @@ progress.
 
 A task can include several local or remote repository rows and live local folders. Repository-only multi-repository creation supports **Worktree**, **Local Docker**, **Kubernetes**, **SSH**, and **Sprites**. Live host folders are supported by **Local** and **Worktree** executors. One folder is the working directory; multiple contents use a task-owned root with named siblings. Remote Docker and host-folder transfer are not implemented. Public GitHub and GitLab repositories can be cloned and fetched anonymously. Private repositories and authenticated browse/write features need credentials that can access the selected base branch.
 
+When a container or remote executor is selected, **Local Folder** is disabled. A local checkout can be selected only after Kandev verifies a usable remote origin, and Kandev clones that origin for the executor. Local uncommitted changes and unpushed commits are not included. Branch choices come from the remote; if a saved local-only branch is unavailable, the row stays selected and task creation remains blocked until you choose a remote branch or remove the row.
+
 If Kandev cannot resolve a pasted remote URL or its branch, the repository row keeps the URL and shows the provider error. Use **Retry** after correcting the URL or when a transient provider failure has cleared.
 
 Changes and review are scoped by repository. State the expected deliverable, base branch, and pull-request target for every attachment. See [Coordinate work](coordination.md) for adding branches after creation and splitting multi-repository work.

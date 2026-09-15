@@ -162,6 +162,8 @@ func (h *TaskHandlers) wsCreateTask(ctx context.Context, msg *ws.Message) (*ws.M
 			ProviderRepoID: r.ProviderRepoID,
 			ProviderOwner:  r.ProviderOwner,
 			ProviderName:   r.ProviderName,
+			CheckoutSource: r.CheckoutSource,
+			ExpectedOrigin: r.ExpectedOrigin,
 		})
 	}
 
@@ -353,6 +355,8 @@ func (h *TaskHandlers) wsUpdateTask(ctx context.Context, msg *ws.Message) (*ws.M
 				ProviderRepoID: r.ProviderRepoID,
 				ProviderOwner:  r.ProviderOwner,
 				ProviderName:   r.ProviderName,
+				CheckoutSource: r.CheckoutSource,
+				ExpectedOrigin: r.ExpectedOrigin,
 			})
 		}
 	}

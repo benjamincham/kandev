@@ -61,6 +61,11 @@ type RepoChipsRowProps = {
    * mode is independent: it creates a new branch from a chosen base.
    */
   isLocalExecutor?: boolean;
+  executorSourcePolicy?: import("@/components/task-create-dialog-executor-source-policy").ExecutorSourcePolicy;
+  folderDisabledReason?: string;
+  onFolderSelectionAdded?: (wasEmpty: boolean) => void;
+  onRepositorySelectionAdded?: (wasFolderOnly: boolean) => void;
+  onAllWorkspaceSourcesRemoved?: () => void;
   /** "No repository" mode: replace the chip row with a folder picker. */
   onToggleNoRepository?: () => void;
   onWorkspacePathChange?: (value: string) => void;
@@ -217,6 +222,11 @@ function MixedRepositorySurface({
   freshBranchEnabled,
   onToggleFreshBranch,
   isLocalExecutor,
+  executorSourcePolicy,
+  folderDisabledReason,
+  onFolderSelectionAdded,
+  onRepositorySelectionAdded,
+  onAllWorkspaceSourcesRemoved,
   onWorkspacePathChange,
   lastUsedBranch,
   userSettingsLoaded,
@@ -233,6 +243,8 @@ function MixedRepositorySurface({
         repositories={repositories}
         workspaceId={workspaceId}
         isLocalExecutor={!!isLocalExecutor}
+        executorSourcePolicy={executorSourcePolicy}
+        folderDisabledReason={folderDisabledReason}
         repositoryLocked={repositoryLocked}
         branchLocked={branchLocked}
         freshBranchEnabled={freshBranchEnabled}
@@ -255,6 +267,9 @@ function MixedRepositorySurface({
         onRefreshRepositories={onRefreshRepositories}
         repositoriesRefreshing={repositoriesRefreshing}
         repositorySets={repositoryLocked || branchLocked ? undefined : repositorySets}
+        onFolderSelectionAdded={onFolderSelectionAdded}
+        onRepositorySelectionAdded={onRepositorySelectionAdded}
+        onAllWorkspaceSourcesRemoved={onAllWorkspaceSourcesRemoved}
       />
       <LocalRepositoryCreationSurface
         creation={localRepositoryCreation}

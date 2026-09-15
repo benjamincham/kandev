@@ -14,6 +14,8 @@ export type RepositoryBranchDataArgs = {
   preferredDefaultBranchLoading?: boolean;
   lastUsedBranch?: string | null;
   userSettingsLoaded?: boolean;
+  remoteBranches?: import("@/lib/types/http").Branch[];
+  isLocalExecutor?: boolean;
 };
 
 export function useRepositoryBranchData({
@@ -25,6 +27,8 @@ export function useRepositoryBranchData({
   preferredDefaultBranchLoading,
   lastUsedBranch,
   userSettingsLoaded,
+  remoteBranches,
+  isLocalExecutor = false,
 }: RepositoryBranchDataArgs) {
   const branchSource = useMemo<BranchSource | null>(() => {
     if (!workspaceId) return null;
@@ -42,10 +46,11 @@ export function useRepositoryBranchData({
     refresh: refreshBranches,
     isLoaded: branchesLoaded,
   } = useBranches(branchSource, !!branchSource);
+  const effectiveBranches = !isLocalExecutor && remoteBranches ? remoteBranches : branches;
   useRepoBranchAutoselect({
     branchSource,
     branchesLoading,
-    branches,
+    branches: effectiveBranches,
     rowBranch: branchValue,
     onBranchChange,
     preferredDefaultBranch,
@@ -53,5 +58,10 @@ export function useRepositoryBranchData({
     lastUsedBranch,
     userSettingsLoaded,
   });
-  return { branches, branchesLoading, branchesLoaded, refreshBranches };
+  return {
+    branches: effectiveBranches,
+    branchesLoading: !isLocalExecutor && remoteBranches ? false : branchesLoading,
+    branchesLoaded: !isLocalExecutor && remoteBranches ? true : branchesLoaded,
+    refreshBranches,
+  };
 }
