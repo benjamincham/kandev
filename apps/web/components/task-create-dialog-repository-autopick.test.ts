@@ -95,21 +95,72 @@ describe("useRepositoryAutoSelectEffect loading gates", () => {
   it("leaves the selection empty when loaded settings have no repository candidate", async () => {
     window.localStorage.setItem(STORAGE_KEYS.LAST_REPOSITORY_ID, JSON.stringify("repo-1"));
     const setRepositories = vi.fn();
-    const fs = makeRepoAutoSelectFs([], setRepositories);
+    const setNoRepository = vi.fn();
+    const fs = {
+      ...makeRepoAutoSelectFs([], setRepositories),
+      noRepository: false,
+      repositorySelections: [],
+      setNoRepository,
+    } as unknown as DialogFormState;
 
     renderHook(() =>
-      useRepositoryAutoSelectEffect(
-        fs,
-        true,
-        "ws-1",
-        [makeRepository("repo-1"), makeRepository("repo-2")],
-        { userSettingsLoaded: true },
-      ),
+      useRepositoryAutoSelectEffect(fs, true, "ws-1", [], { userSettingsLoaded: true }),
     );
 
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(setRepositories).not.toHaveBeenCalled();
+    expect(setNoRepository).toHaveBeenCalledWith(true);
     expect(readQueuedTaskCreateLastUsedState()).toEqual({});
+  });
+});
+
+describe("useRepositoryAutoSelectEffect canonical empty drafts", () => {
+  it("waits for the repository catalog before selecting scratch", async () => {
+    const setRepositories = vi.fn();
+    const setNoRepository = vi.fn();
+    const fs = {
+      ...makeRepoAutoSelectFs([], setRepositories),
+      noRepository: false,
+      repositorySelections: [],
+      setNoRepository,
+    } as unknown as DialogFormState;
+    const settings = (repositoriesLoaded: boolean) =>
+      ({ userSettingsLoaded: true, repositoriesLoaded }) as Parameters<
+        typeof useRepositoryAutoSelectEffect
+      >[4];
+
+    const { rerender } = renderHook(
+      ({ repositoriesLoaded }) =>
+        useRepositoryAutoSelectEffect(fs, true, "ws-1", [], settings(repositoriesLoaded)),
+      { initialProps: { repositoriesLoaded: false } },
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(setNoRepository).not.toHaveBeenCalled();
+
+    rerender({ repositoriesLoaded: true });
+    await waitFor(() => expect(setNoRepository).toHaveBeenCalledWith(true));
+  });
+
+  it("preserves an initial folder selection when no repositories are registered", async () => {
+    const setRepositories = vi.fn();
+    const setNoRepository = vi.fn();
+    const fs = {
+      ...makeRepoAutoSelectFs([], setRepositories),
+      noRepository: false,
+      repositorySelections: [{ kind: "folder", key: "folder-0", localPath: "/tmp/assets" }],
+      setNoRepository,
+    } as unknown as DialogFormState;
+
+    renderHook(() =>
+      useRepositoryAutoSelectEffect(fs, true, "ws-1", [], {
+        userSettingsLoaded: true,
+        repositoriesLoaded: true,
+      }),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(setNoRepository).not.toHaveBeenCalled();
   });
 });
 

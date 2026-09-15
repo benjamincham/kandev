@@ -392,6 +392,7 @@ export type TaskCreateEffectsArgs = {
   effectiveWorkflowId: string | null;
   repositories: Repository[];
   repositoriesLoading: boolean;
+  repositoriesLoaded: boolean;
   agentProfiles: AgentProfileOption[];
   compatibleAgentProfiles: AgentProfileOption[];
   authLoaded: boolean;

@@ -62,7 +62,16 @@ export async function exerciseMultiRowCreation(
       },
     });
   });
-  const refreshed = waitForHttp(page, "GET", new RegExp(`${repositoriesPath}$`));
+  const refreshed = waitForHttp(page, "GET", new RegExp(`${repositoriesPath}$`), {
+    predicate: async (response) => {
+      const body = (await response.json()) as {
+        repositories?: Array<{ id?: string }>;
+      };
+      return (
+        body.repositories?.some((repository) => repository.id === "refresh-only-option") ?? false
+      );
+    },
+  });
   try {
     await activate(refresh);
     await expect(refresh).toBeDisabled();

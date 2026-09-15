@@ -593,6 +593,7 @@ export function useTaskCreateDialogEffects(fs: DialogFormState, args: TaskCreate
     effectiveWorkflowId,
     repositories,
     repositoriesLoading,
+    repositoriesLoaded,
     editingTaskExecutorProfileId,
   } = args;
   const {
@@ -616,6 +617,7 @@ export function useTaskCreateDialogEffects(fs: DialogFormState, args: TaskCreate
   useRepositoryAutoSelectEffect(fs, open, workspaceId, repositories, {
     lastUsedRepositoryId: args.lastUsedRepositoryId,
     userSettingsLoaded: args.userSettingsLoaded,
+    repositoriesLoaded,
     hasWorkspaceSourcesSnapshot: args.hasWorkspaceSourcesSnapshot,
   });
   useDiscoverReposEffect(fs, open, workspaceId, repositoriesLoading, toast);

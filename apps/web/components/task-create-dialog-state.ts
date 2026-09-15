@@ -636,6 +636,7 @@ export function useTaskCreateDialogData({
   const {
     repositories,
     isLoading: repositoriesLoading,
+    isLoaded: repositoriesLoaded,
     refresh: refreshRepositories,
   } = useRepositories(workspaceId, open);
   // Per-repo branch loading lives in each chip now (RepoChipsRow). No
@@ -673,6 +674,7 @@ export function useTaskCreateDialogData({
     snapshots,
     repositories,
     repositoriesLoading,
+    repositoriesLoaded,
     refreshRepositories,
     branchesLoading,
     taskCreateLastUsed: taskCreateUserSettings.userSettings.taskCreateLastUsed,

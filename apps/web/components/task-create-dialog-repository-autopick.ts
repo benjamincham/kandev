@@ -18,6 +18,7 @@ type RepositoryAutoPickDecision = {
 type RepositoryAutoSelectSettings = {
   lastUsedRepositoryId?: string | null;
   userSettingsLoaded?: boolean;
+  repositoriesLoaded?: boolean;
   hasWorkspaceSourcesSnapshot?: boolean;
 };
 
@@ -29,8 +30,8 @@ export function useRepositoryAutoSelectEffect(
   settings: RepositoryAutoSelectSettings = {},
 ) {
   // On open, seed a row only when a valid last-used repository or the
-  // workspace's sole repository is available. An empty workspace stays empty
-  // so the user sees the source picker without an identity-free chip.
+  // workspace's sole repository is available. An empty catalog enters scratch
+  // mode after loading so the picker stays visible without an identity-free chip.
   const { repositories: rows, useRemote } = fs;
   const hydrateRepositories = fs.hydrateRepositories ?? fs.setRepositories;
   const hasRemoteSelection = fs.repositorySelections
@@ -39,25 +40,40 @@ export function useRepositoryAutoSelectEffect(
   const {
     lastUsedRepositoryId,
     userSettingsLoaded = true,
+    repositoriesLoaded = true,
     hasWorkspaceSourcesSnapshot = false,
   } = settings;
   useEffect(() => {
     if (
-      !open ||
-      !workspaceId ||
-      fs.noRepository ||
-      hasRemoteSelection ||
-      fs.repositorySelectionsTouched ||
-      hasWorkspaceSourcesSnapshot
+      shouldSkipRepositoryAutoSelect({
+        open,
+        workspaceId,
+        fs,
+        hasRemoteSelection,
+        hasWorkspaceSourcesSnapshot,
+        repositoriesLoaded,
+      })
     )
       return;
+    if (!workspaceId) return;
     const decision = decideRepositoryAutoPick(
       repositories,
       lastUsedRepositoryId,
       userSettingsLoaded,
     );
     logRepositoryAutoPick(workspaceId, repositories.length, decision);
-    if (decision.defer || !decision.pickId) return;
+    if (decision.defer) return;
+    if (!decision.pickId) {
+      if (
+        fs.repositorySelections &&
+        fs.repositorySelections.length === 0 &&
+        rows.length === 0 &&
+        repositories.length === 0
+      ) {
+        fs.setNoRepository?.(true);
+      }
+      return;
+    }
     const { pickId } = decision;
     if (rows.length > 0 && !canReplaceEmptyRepositoryPlaceholder(rows, pickId)) return;
     void Promise.resolve().then(() => {
@@ -77,8 +93,35 @@ export function useRepositoryAutoSelectEffect(
     hydrateRepositories,
     lastUsedRepositoryId,
     userSettingsLoaded,
+    repositoriesLoaded,
     hasWorkspaceSourcesSnapshot,
   ]);
+}
+
+function shouldSkipRepositoryAutoSelect({
+  open,
+  workspaceId,
+  fs,
+  hasRemoteSelection,
+  hasWorkspaceSourcesSnapshot,
+  repositoriesLoaded,
+}: {
+  open: boolean;
+  workspaceId: string | null;
+  fs: DialogFormState;
+  hasRemoteSelection: boolean;
+  hasWorkspaceSourcesSnapshot: boolean;
+  repositoriesLoaded: boolean;
+}): boolean {
+  return (
+    !open ||
+    !workspaceId ||
+    fs.noRepository ||
+    hasRemoteSelection ||
+    fs.repositorySelectionsTouched ||
+    hasWorkspaceSourcesSnapshot ||
+    !repositoriesLoaded
+  );
 }
 
 function replaceSeededRepositoryRows(rows: TaskRepoRow[], pickId: string | null): TaskRepoRow[] {
