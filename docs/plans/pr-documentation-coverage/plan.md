@@ -74,7 +74,7 @@ keeps permanent errors fail-closed, and writes the final policy or
 infrastructure reason to the runner log as well as the step summary. The
 implementation and contract checks pass:
 
-- `node --test .github/scripts/pr-docs.test.cjs` (59 passed)
+- `node --test .github/scripts/pr-docs.test.cjs` (63 passed)
 - `python3 .github/scripts/pr-docs-workflow-contract_test.py` (5 passed)
 - `python3 .github/scripts/lint-action-pinning_test.py` (9 passed)
 - `python3 scripts/lint-spec-files.py --all` (passed)

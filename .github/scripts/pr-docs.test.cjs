@@ -947,6 +947,79 @@ test('GitHub client retries rate-limit responses but preserves permanent client 
   assert.equal(permanentCalls, 1);
 });
 
+test('GitHub client honors a primary rate-limit reset that is already due', async () => {
+  let calls = 0;
+  const delays = [];
+  const client = new validator.GitHubClient({
+    owner: 'kdlbs',
+    repo: 'kandev',
+    token: 'token',
+    sleepImpl: async delay => delays.push(delay),
+    fetchImpl: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          ok: false,
+          status: 403,
+          headers: {
+            'x-ratelimit-remaining': '0',
+            'x-ratelimit-reset': String(Math.floor(Date.now() / 1000)),
+          },
+          async text() {
+            return JSON.stringify({ message: 'API rate limit exceeded' });
+          },
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        async text() {
+          return JSON.stringify({
+            number: 42,
+            head: { sha: SHA_B },
+            base: { sha: SHA_A, ref: 'main' },
+            labels: [],
+            changed_files: 0,
+          });
+        },
+      };
+    },
+  });
+
+  const result = await client.getPullRequest(42);
+
+  assert.equal(result.head.sha, SHA_B);
+  assert.equal(calls, 2);
+  assert.deepEqual(delays, [0]);
+});
+
+test('GitHub client does not spend retries before a distant primary rate-limit reset', async () => {
+  let calls = 0;
+  const client = new validator.GitHubClient({
+    owner: 'kdlbs',
+    repo: 'kandev',
+    token: 'token',
+    sleepImpl: async () => {},
+    fetchImpl: async () => {
+      calls += 1;
+      return {
+        ok: false,
+        status: 403,
+        headers: {
+          'x-ratelimit-remaining': '0',
+          'x-ratelimit-reset': String(Math.ceil((Date.now() + 120_000) / 1000)),
+        },
+        async text() {
+          return JSON.stringify({ message: 'API rate limit exceeded' });
+        },
+      };
+    },
+  });
+
+  await assert.rejects(client.getPullRequest(42), /HTTP 403/);
+  assert.equal(calls, 1);
+});
+
 test('GitHub client bounds repeated transient failures', async () => {
   let calls = 0;
   const client = new validator.GitHubClient({
@@ -1718,7 +1791,31 @@ test('run sends policy failures to the job log writer', async () => {
   assert.equal(result.exitCode, 1);
   assert.equal(result.result.status, 'missing');
   assert.match(errors.join('\n'), /policy failure/);
-  assert.match(errors.join('\n'), /delivery package/);
+  assert.match(errors.join('\n'), /No changed work order covers the triggering paths/);
+});
+
+test('run emits diagnostics before a step-summary write failure', async () => {
+  const errors = [];
+  const client = {
+    async getPullRequest() {
+      throw new Error('GitHub API request failed with HTTP 503: Service Unavailable');
+    },
+  };
+
+  await assert.rejects(
+    validator.run({
+      client,
+      env: {},
+      event: { pull_request: { number: 42 } },
+      eventName: 'pull_request_target',
+      writeError: error => errors.push(error),
+      writeSummary: () => {
+        throw new Error('summary unavailable');
+      },
+    }),
+    /summary unavailable/,
+  );
+  assert.match(errors.join('\n'), /HTTP 503/);
 });
 
 test('workflow dispatch reads the pull-request number from its input', async () => {

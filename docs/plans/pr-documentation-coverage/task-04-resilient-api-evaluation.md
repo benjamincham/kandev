@@ -65,17 +65,19 @@ Implemented in `.github/scripts/pr-docs.cjs` and covered by
 - GitHub API requests retry transient network errors, HTTP 408/429/5xx
   responses, rate-limit responses, unreadable transient response bodies, and
   invalid JSON from retryable server responses.
-- Backoff is bounded, honors numeric `Retry-After` hints up to the workflow's
-  operational limit, and stops after three attempts. Permanent client errors
-  remain fail-closed.
+- Backoff is bounded, honors numeric `Retry-After` and primary
+  `X-RateLimit-Reset` hints within the workflow's operational limit, and stops
+  immediately when an explicit server wait exceeds that limit. Permanent
+  client errors remain fail-closed.
 - Failed evaluations print bounded, newline-safe policy or infrastructure
-  reasons to the runner log and retain the detailed step summary.
+  reasons to the runner log before writing and retaining the detailed step
+  summary.
 - Existing exact-head reads, ambiguity detection, security limits, and
   merge-group behavior remain unchanged.
 
 Verification:
 
-- `node --test .github/scripts/pr-docs.test.cjs` (59 passed)
+- `node --test .github/scripts/pr-docs.test.cjs` (63 passed)
 - `python3 .github/scripts/pr-docs-workflow-contract_test.py` (5 passed)
 - `python3 .github/scripts/lint-action-pinning_test.py` (9 passed)
 - `python3 scripts/lint-spec-files.py --all` (passed)

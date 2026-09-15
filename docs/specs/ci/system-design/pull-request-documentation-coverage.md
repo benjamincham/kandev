@@ -53,8 +53,10 @@ Select added or modified `docs/plans/<initiative>/task-<NN>-<slug>.md` files fro
 A pure rename with no content change does not qualify. Require at least one qualifying work order.
 Read selected work orders and references at the exact PR head through the content API, as bounded text data.
 The API adapter retries transient network, timeout, rate-limit, and server
-responses with bounded backoff and honors bounded `Retry-After` hints. Permanent
-client errors and exhausted retries remain infrastructure errors. Requirement
+responses with bounded backoff and honors bounded `Retry-After` and
+`X-RateLimit-Reset` hints. If an explicit server wait exceeds the retry budget,
+the request fails immediately with its infrastructure reason. Permanent client
+errors and exhausted retries remain infrastructure errors. Requirement
 lookups retain the code-search and exact-head directory fallback so ambiguous
 requirement definitions continue to fail closed.
 
@@ -96,9 +98,10 @@ Do not rely on the native `pull_request_target` job check, whose execution ident
 Use a distinct job name to avoid a status/check-name collision.
 Set pending before evaluation; publish success, failure for missing coverage, or error for incomplete data.
 The status target URL points to the run summary, which lists reasons, paths, references, and remediation.
-When the result is a failure or infrastructure error, also print its escaped,
-bounded reasons to the job log so an operator can distinguish a policy failure
-from a GitHub API failure without opening an unavailable step summary.
+When the result is a failure or infrastructure error, print its escaped,
+bounded reasons to the job log before writing the step summary. This preserves
+the diagnostic when the summary destination is unavailable and lets an
+operator distinguish a policy failure from a GitHub API failure.
 Also fail the workflow job on policy failure or infrastructure error. Do not post PR comments.
 
 Serialize all events by the normalized target branch with `queue: max` and

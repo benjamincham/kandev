@@ -93,11 +93,23 @@ function responseHeader(response, name) {
 
 function retryDelay(response, attempt) {
   const retryAfter = responseHeader(response, 'retry-after');
-  if (retryAfter !== undefined && /^\d+(?:\.\d+)?$/.test(retryAfter.trim())) {
-    const requested = Number(retryAfter) * 1000;
-    if (Number.isFinite(requested)) {
-      return Math.min(Math.max(0, requested), RETRY_MAX_DELAY_MS);
+  if (retryAfter !== undefined) {
+    const trimmed = retryAfter.trim();
+    if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
+      const requested = Number(trimmed) * 1000;
+      if (Number.isFinite(requested)) {
+        return requested > RETRY_MAX_DELAY_MS ? undefined : Math.max(0, requested);
+      }
     }
+    const requested = Date.parse(trimmed) - Date.now();
+    if (Number.isFinite(requested)) {
+      return requested > RETRY_MAX_DELAY_MS ? undefined : Math.max(0, requested);
+    }
+  }
+  const resetAt = Number(responseHeader(response, 'x-ratelimit-reset'));
+  if (Number.isFinite(resetAt) && resetAt > 0) {
+    const requested = resetAt * 1000 - Date.now();
+    return requested > RETRY_MAX_DELAY_MS ? undefined : Math.max(0, requested);
   }
   return Math.min(RETRY_BASE_DELAY_MS * (2 ** attempt), RETRY_MAX_DELAY_MS);
 }
@@ -884,8 +896,9 @@ class GitHubClient {
       try {
         text = await response.text();
       } catch (error) {
-        if (attempt + 1 < MAX_REQUEST_ATTEMPTS) {
-          await this.sleepImpl(retryDelay(response, attempt));
+        const delay = retryDelay(response, attempt);
+        if (attempt + 1 < MAX_REQUEST_ATTEMPTS && delay !== undefined) {
+          await this.sleepImpl(delay);
           continue;
         }
         if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
@@ -906,8 +919,11 @@ class GitHubClient {
               `GitHub API request failed with HTTP ${response.status}: invalid JSON`,
             );
             if (attempt + 1 < MAX_REQUEST_ATTEMPTS && isRetryableResponse(response)) {
-              await this.sleepImpl(retryDelay(response, attempt));
-              continue;
+              const delay = retryDelay(response, attempt);
+              if (delay !== undefined) {
+                await this.sleepImpl(delay);
+                continue;
+              }
             }
             throw error;
           }
@@ -921,14 +937,16 @@ class GitHubClient {
           `GitHub API request failed with HTTP ${response.status}${detail}`,
         );
         if (attempt + 1 < MAX_REQUEST_ATTEMPTS && isRetryableResponse(response, payload)) {
-          await this.sleepImpl(retryDelay(response, attempt));
-          continue;
+          const delay = retryDelay(response, attempt);
+          if (delay !== undefined) {
+            await this.sleepImpl(delay);
+            continue;
+          }
         }
         throw error;
       }
       return payload;
     }
-    throw new Error('GitHub API request retry limit was reached');
   }
 
   async getPullRequest(number) {
@@ -1872,7 +1890,6 @@ async function run({ client, env = process.env, event, eventName, writeSummary, 
     }
   }
 
-  await writeRunSummary(resultSummary(result), env, writeSummary);
   if (!result.ok && result.errors?.length > 0) {
     const kind = result.status === 'error' ? 'infrastructure error' : 'policy failure';
     const message = `PR documentation coverage ${kind}: ${resultLogMessage(result)}\n`;
@@ -1882,6 +1899,7 @@ async function run({ client, env = process.env, event, eventName, writeSummary, 
       process.stderr.write(message);
     }
   }
+  await writeRunSummary(resultSummary(result), env, writeSummary);
   return { exitCode: result.ok ? 0 : 1, result };
 }
 
