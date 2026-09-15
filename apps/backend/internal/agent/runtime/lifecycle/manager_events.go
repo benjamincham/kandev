@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -727,12 +728,13 @@ func (m *Manager) handleStreamDisconnectWithAttempt(
 		var claimed bool
 		var updated *AgentExecution
 		uncertainSubmissionID := execution.deliverySubmissionIDSnapshot()
+		uncertain := uncertainSubmissionID != "" || errors.Is(err, ErrUncertainPromptDelivery)
 		statusErr := m.executionStore.WithLock(execution.ID, func(current *AgentExecution) {
 			if current != execution || current.promptGeneration != promptGeneration {
 				return
 			}
 			current.Status = v1.AgentStatusFailed
-			if uncertainSubmissionID != "" {
+			if uncertain {
 				current.FailureCode = "DURABLE_DELIVERY_UNCERTAIN"
 				current.FailureDetails = uncertainSubmissionID
 			}
@@ -785,8 +787,9 @@ func (m *Manager) handleStreamDisconnectWithStartupGeneration(
 ) {
 	accepted := execution.withStartupAttempt(startupGeneration, func(attemptID string) {
 		uncertainSubmissionID := execution.deliverySubmissionIDSnapshot()
+		uncertain := uncertainSubmissionID != "" || errors.Is(err, ErrUncertainPromptDelivery)
 		signalError := "agent stream disconnected: " + err.Error()
-		if uncertainSubmissionID != "" {
+		if uncertain {
 			signalError = fmt.Sprintf(
 				"%s: %s; reconcile submission %q before retrying",
 				ErrUncertainPromptDelivery,
@@ -798,7 +801,7 @@ func (m *Manager) handleStreamDisconnectWithStartupGeneration(
 			startupGeneration,
 			PromptCompletionSignal{
 				IsError:          true,
-				Uncertain:        uncertainSubmissionID != "",
+				Uncertain:        uncertain,
 				Error:            signalError,
 				PromptGeneration: promptGeneration,
 			},
@@ -836,7 +839,7 @@ func (m *Manager) publishStreamDisconnectErrorWithAttempt(
 	attemptID string,
 ) {
 	message := "agent stream disconnected: " + err.Error()
-	if submissionID := execution.deliverySubmissionIDSnapshot(); submissionID != "" {
+	if submissionID := execution.deliverySubmissionIDSnapshot(); submissionID != "" || errors.Is(err, ErrUncertainPromptDelivery) {
 		message = fmt.Sprintf(
 			"%s: agent stream disconnected; reconcile submission %q before retrying",
 			ErrUncertainPromptDelivery,
