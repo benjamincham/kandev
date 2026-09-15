@@ -212,7 +212,7 @@ func (m *Manager) prepareRestartedKubernetesAgentctl(
 		return "", nil
 	}
 	result, err := m.sessionManager.InitializeSession(
-		ctx, client, refresh.AgentConfig, execution.ACPSessionID,
+		ctx, execution, client, refresh.AgentConfig, execution.ACPSessionID,
 		execution.WorkspacePath, kubernetesRefreshMcpServers(refresh.McpServers),
 		RestoreIdentity{
 			SessionID:            execution.SessionID,

@@ -1526,6 +1526,7 @@ func (m *Manager) initializeACPSessionForRestart(
 	}
 	result, err := m.sessionManager.InitializeSession(
 		ctx,
+		execution,
 		client,
 		agentConfig,
 		"", // empty — force session/new
