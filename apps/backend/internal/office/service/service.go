@@ -156,6 +156,11 @@ type TaskWorkspaceService interface {
 	GetLastAgentMessageForTurn(ctx context.Context, turnID string) (string, error)
 }
 
+// TaskTreeDeleter removes one task through the task lifecycle coordinator.
+// The callback is invoked with cascade=false because DeleteWorkspace enumerates
+// every task and must not delete a sibling twice through a parent cascade.
+type TaskTreeDeleter func(ctx context.Context, taskID string) error
+
 // WorkspaceGroupCleaner removes Kandev-owned materialized task workspaces
 // before the office repository deletes the rows holding their cleanup handles.
 type WorkspaceGroupCleaner interface {
@@ -314,6 +319,7 @@ type ServiceOptions struct {
 	TaskStarter             TaskStarter
 	TaskCanceller           TaskCanceller
 	TaskWorkspace           TaskWorkspaceService
+	TaskTreeDeleter         TaskTreeDeleter
 	WorkspaceGroupCleaner   WorkspaceGroupCleaner
 	TaskCreator             TaskCreator
 	WorkspaceCreator        WorkspaceCreator
@@ -339,6 +345,7 @@ type Service struct {
 	routingDispatcher       RoutingDispatcher
 	taskCanceller           TaskCanceller
 	taskWorkspace           TaskWorkspaceService
+	taskTreeDeleter         TaskTreeDeleter
 	workspaceGroupCleaner   WorkspaceGroupCleaner
 	configSyncCleaner       ConfigSyncCleaner
 	taskCreator             TaskCreator
@@ -501,6 +508,7 @@ func NewService(opts ServiceOptions) *Service {
 		taskStarter:             opts.TaskStarter,
 		taskCanceller:           opts.TaskCanceller,
 		taskWorkspace:           opts.TaskWorkspace,
+		taskTreeDeleter:         opts.TaskTreeDeleter,
 		workspaceGroupCleaner:   opts.WorkspaceGroupCleaner,
 		taskCreator:             opts.TaskCreator,
 		workspaceCreator:        opts.WorkspaceCreator,
@@ -518,6 +526,13 @@ func NewService(opts ServiceOptions) *Service {
 // constructs the shared HandoffService instance.
 func (s *Service) SetWorkspaceGroupCleaner(cleaner WorkspaceGroupCleaner) {
 	s.workspaceGroupCleaner = cleaner
+}
+
+// SetTaskTreeDeleter wires the lifecycle coordinator used by permanent
+// workspace deletion. Without it, the legacy task-row delete fallback remains
+// available for isolated tests and older composition roots.
+func (s *Service) SetTaskTreeDeleter(deleter TaskTreeDeleter) {
+	s.taskTreeDeleter = deleter
 }
 
 // SetConfigSyncCleaner wires the config sync service after startup

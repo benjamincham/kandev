@@ -335,7 +335,7 @@ func (s *workflowStore) markDeferredMoveAppliedUnfenced(ctx context.Context, tas
 	if err := markDeferredMoveApplied(task, moveID); err != nil {
 		return err
 	}
-	if err := s.repo.UpdateTask(ctx, task); err != nil {
+	if err := s.repo.UpdateTaskPreservingDeferredLaunch(ctx, task); err != nil {
 		return fmt.Errorf("persist deferred move identity: %w", err)
 	}
 	return nil
@@ -626,7 +626,7 @@ func markDeferredMoveApplied(task *models.Task, moveID string) error {
 
 func (s *workflowStore) updateTransitionTask(ctx context.Context, task *models.Task, fromStepID string, targetStep *wfmodels.WorkflowStep) (bool, error) {
 	if targetStep == nil {
-		return true, s.repo.UpdateTask(ctx, task)
+		return true, s.repo.UpdateTaskPreservingDeferredLaunch(ctx, task)
 	}
 	if effect := workflowEffectFromContext(ctx); effect != nil {
 		if effectRepo, ok := s.repo.(workflowMoveAdmissionEffectRepository); ok {
