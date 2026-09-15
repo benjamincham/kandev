@@ -102,6 +102,7 @@ Use **New Task** in the sidebar. In an open task, the **Task** split button also
 
 4. Select a compatible executor profile and agent profile. A workflow default agent profile locks the task-level agent selector. Executor and agent compatibility is validated before launch.
 5. Enter the initial description. If the applicable launch step has a prompt template, use the eye button after **Enhance prompt with AI** to inspect the launch prompt with your description inserted. The preview leaves task IDs and saved-prompt references unresolved until the task exists. Toggle the button again to return to the unchanged description. In the **New Task** dialog, an empty description changes the primary action to **Start Plan Mode** and uses the first positional workflow step; the other dialog actions require a description. Agent-facing task MCP has different empty-description rules. When agent-generated task titles are enabled, every task and subtask action requires a nonempty prompt; the empty-description Plan Mode exception is disabled. A nonempty description exposes the standard split actions and updates the displayed destination to the first positional step with **Auto-start agent**, or falls back to **Start step** and then the first positional step.
+For a Worktree task with one initial repository, **Advanced settings** includes **Start in a parent workspace folder**. It is off by default. Enable it when later repositories should be siblings and the agent should start in the task folder above the first repository. A task with multiple initial repositories uses that parent layout automatically. The setting is available only when the selected executor and source set support the layout.
 6. Choose the applicable action:
    - **Start Plan Mode** is the primary empty-description action and creates the task through the plan-mode path.
    - **Start task** requires a nonempty description, creates the task, and starts its agent. This path starts in the first positional step whose entry actions include **Auto-start agent**, falling back to **Start step** when the workflow automates no step.
@@ -296,6 +297,14 @@ The task must be idle: Kandev disables the action while a turn or tool call is a
 Before submission, the dialog or drawer summarizes the effect on the workspace, session context,
 and running processes. **Cancel** or closing the surface sends no request and changes nothing. A
 submitted batch remains all-or-nothing.
+
+For a single-repository Worktree task that still uses the repository as its workspace root, a
+repository-only batch lets you choose **Inside kandev/** or **Inside the current repository**. Both
+choices keep the agent CWD and running workspace processes unchanged. Kandev records the selected
+relative path, previews the destination, and protects the outer repository from staging the nested
+worktree. The **Expand workspace root** choice is shown as unavailable until explicit idle session
+recovery is available. A task that already starts in a parent workspace adds repositories as
+siblings and does not show these placement choices.
 
 If adding a source promotes a Worktree or Local/Local PC workspace from one repository directory to
 the task root, Kandev restarts the idle agent in the new root. Existing files, Git changes, task

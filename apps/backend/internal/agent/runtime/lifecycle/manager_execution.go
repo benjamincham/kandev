@@ -425,16 +425,16 @@ func validateWorkspaceInfoForExecution(ctx context.Context, info *WorkspaceInfo)
 		return ErrSessionWorkspaceNotReady
 	}
 	for index, repository := range info.WorkspaceRepositories {
-		candidate := info.WorkspacePath
-		if index > 0 {
-			candidate = filepath.Join(info.WorkspacePath, repository.RepoName)
-		} else if len(info.WorkspaceRepositories) > 1 {
+		candidate := workspaceRepositoryCandidate(info.WorkspacePath, info.WorkspaceLayout, repository.RepoName, repository.WorkspaceRelativePath)
+		if repository.WorkspaceRelativePath == "" && info.WorkspaceLayout != workspaceLayoutTaskRoot && index > 0 {
+			candidate = filepath.Join(info.WorkspacePath, workspaceRepositoryEntryName(repository.RepoName))
+		} else if repository.WorkspaceRelativePath == "" && info.WorkspaceLayout != workspaceLayoutTaskRoot && index == 0 && len(info.WorkspaceRepositories) > 1 {
 			// Multi-repository worktree layouts use a task root. Local layouts
 			// may use the primary repository itself as the root, so prefer the
 			// root when it validates and otherwise try its named child.
 			expected := localWorkspaceExpectedRepository(info, repository)
 			if validateLocalRepositoryWorkspace(ctx, candidate, expected) != nil {
-				candidate = filepath.Join(info.WorkspacePath, repository.RepoName)
+				candidate = filepath.Join(info.WorkspacePath, workspaceRepositoryEntryName(repository.RepoName))
 			}
 		}
 		if err := validateLocalRepositoryWorkspace(ctx, candidate, localWorkspaceExpectedRepository(info, repository)); err != nil {
@@ -906,7 +906,7 @@ func (m *Manager) reconcileExecutionWorkspace(ctx context.Context, taskID string
 		return err
 	}
 	if info.ExecutorType == string(models.ExecutorTypeLocal) || info.ExecutorType == "local_pc" {
-		if err := reconcileWorkspaceRepositories(info.WorkspacePath, info.WorkspaceRepositories, m.logger, owner); err != nil {
+		if err := reconcileWorkspaceRepositoriesAtLayout(info.WorkspacePath, info.WorkspaceLayout, info.WorkspaceRepositories, m.logger, owner); err != nil {
 			return err
 		}
 	}
@@ -1169,6 +1169,7 @@ func (m *Manager) reconcileWorkspaceWorktrees(ctx context.Context, taskID string
 			WorktreeBranchTemplate: repository.WorktreeBranchTemplate, PullBeforeWorktree: repository.PullBeforeWorktree,
 			RemoteSyncHandled: repository.RemoteSyncHandled,
 			BranchSlug:        repository.BranchSlug, BranchIdentitySlug: repository.BranchIdentitySlug,
+			WorkspaceRelativePath: repository.WorkspaceRelativePath,
 		}); err != nil {
 			return fmt.Errorf("recreate workspace worktree %q: %w", repository.RepoName, err)
 		}
