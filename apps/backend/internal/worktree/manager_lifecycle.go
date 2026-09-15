@@ -767,6 +767,9 @@ func (m *Manager) createInTaskDir(ctx context.Context, req CreateRequest, baseRe
 	if err != nil {
 		return nil, err
 	}
+	if req.RemoteContribution != nil {
+		return m.createContributionInTaskDir(ctx, req, worktreePath, fallbackWarning, fallbackDetail)
+	}
 	nestedExclusionChanged := false
 	if req.WorkspaceRelativePath != "" {
 		nestedExclusionChanged, err = m.addNestedWorkspaceExclusion(ctx, req.RepositoryPath, worktreePath)
@@ -788,9 +791,6 @@ func (m *Manager) createInTaskDir(ctx context.Context, req CreateRequest, baseRe
 
 	var fetchResult *FetchBranchResult
 	checkoutMode := req
-	if req.RemoteContribution != nil {
-		return m.createContributionInTaskDir(ctx, req, worktreePath, fallbackWarning, fallbackDetail)
-	}
 	if req.CheckoutBranch != "" {
 		if req.RemoteSyncHandled {
 			selectedRef, prepareErr := m.prepareBranchFromRefreshedOrigin(

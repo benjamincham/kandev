@@ -59,7 +59,11 @@ func (h *TaskHandlers) httpAttachWorkspaceSources(c *gin.Context) {
 	var body httpWorkspaceSourcesRequest
 	decoder := json.NewDecoder(c.Request.Body)
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&body); err != nil || len(body.Sources) == 0 {
+	if err := decoder.Decode(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if len(body.Sources) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "sources is required"})
 		return
 	}
@@ -86,7 +90,11 @@ func (h *TaskHandlers) httpPreviewWorkspaceSources(c *gin.Context) {
 	var body httpWorkspaceSourcesRequest
 	decoder := json.NewDecoder(c.Request.Body)
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&body); err != nil || len(body.Sources) == 0 {
+	if err := decoder.Decode(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if len(body.Sources) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "sources is required"})
 		return
 	}
@@ -1016,6 +1024,8 @@ func (h *TaskHandlers) httpCreateTask(c *gin.Context) {
 		ParentID:                    body.ParentID,
 		WorkspacePath:               body.WorkspacePath,
 		InitialWorkspaceLayout:      body.InitialWorkspaceLayout,
+		ExecutorID:                  body.ExecutorID,
+		ExecutorProfileID:           body.ExecutorProfileID,
 		BlockedBy:                   body.BlockedBy,
 		StartWhenUnblocked:          body.StartWhenUnblocked,
 		ProjectID:                   body.ProjectID,
