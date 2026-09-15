@@ -44,6 +44,8 @@ import { useLazyLoadMessages } from "@/hooks/use-lazy-load-messages";
 import { findUnreadDividerItemId, lastRenderedMessageId } from "@/lib/session-unread-divider";
 import { useSessionReadTracking } from "./chat/use-session-read-tracking";
 import { useDrainOlderMessages } from "@/components/task/chat/use-drain-older-messages";
+import type { RenderItem } from "@/hooks/use-processed-messages";
+
 import { useAppStore, useAppStoreApi } from "@/components/state-provider";
 import { getSessionWorkspacePath } from "@/lib/session-workspace-path";
 import type { AppState } from "@/lib/state/store";
@@ -52,12 +54,10 @@ import { routePanelMouseDown } from "./chat/route-panel-mouse-down";
 import { useTranslation } from "react-i18next";
 
 import { loadMessageWindowAround } from "@/hooks/domains/session/load-message-window";
-import { TaskChatLaunchError } from "./simple/components/task-chat-launch-error";
-import { isTypedTaskLaunchError } from "./simple/components/task-launch-error-entry";
 import { useTaskLaunchErrorContext } from "./task-launch-error-context";
 import { useTaskStatusSummary } from "@/hooks/domains/task/use-task-status-summary";
-import { isTaskLaunchErrorOwnedBySession } from "@/components/task/chat/types";
 import { TaskMarkdownFileLinkProvider } from "@/components/shared/task-markdown-file-link-provider";
+import { statusSummaryTaskError } from "@/lib/task-status-summary";
 
 /** Returns a `clarificationKey` that increments each time a pending
  * clarification is resolved, letting the composer reset its input state for
@@ -79,6 +79,10 @@ export type PendingMessageScrollTarget = {
   token: number;
   hostPanelId: string;
 };
+/** Reports whether a target has a dedicated DOM row in the transcript. */
+export function isMessageRowRendered(items: readonly RenderItem[], messageId: string): boolean {
+  return items.some((item) => item.type === "message" && item.message.id === messageId);
+}
 
 /** Scrolls a non-Dockview host target after the message row becomes rendered. */
 type PendingMessageScrollOptions = {
@@ -1030,11 +1034,8 @@ export const TaskChatPanel = memo(function TaskChatPanel({
     pendingClarification,
     pendingClarificationGroup,
   } = panelState;
-  const activeLaunchError = launchStatusSummary?.active_error;
-  const launchErrorOwned = Boolean(
-    isTypedTaskLaunchError(activeLaunchError) &&
-    isTaskLaunchErrorOwnedBySession(activeLaunchError, resolvedSessionId),
-  );
+  const taskLaunchError = statusSummaryTaskError(launchStatusSummary);
+  const launchErrorOwned = Boolean(taskLaunchError);
   const showAgentStartHint = useComposerAgentStartHint(
     resolvedSessionId,
     session?.state,
@@ -1068,8 +1069,7 @@ export const TaskChatPanel = memo(function TaskChatPanel({
     messageListRef,
     isInitialMessagesLoading,
     targetRendered: Boolean(
-      dockviewTargetMessageId &&
-      allMessages.some((message) => message.id === dockviewTargetMessageId),
+      dockviewTargetMessageId && isMessageRowRendered(groupedItems, dockviewTargetMessageId),
     ),
     renderedMessageCount: allMessages.length,
   });
@@ -1159,7 +1159,6 @@ export const TaskChatPanel = memo(function TaskChatPanel({
     (e: React.MouseEvent<HTMLDivElement>) => routePanelMouseDown(e, panelRef),
     [],
   );
-
   return (
     <PanelRoot
       ref={panelRef}
@@ -1170,17 +1169,7 @@ export const TaskChatPanel = memo(function TaskChatPanel({
       onMouseDown={handlePanelMouseDown}
       className="outline-none"
     >
-      <PanelBody padding={false} className="relative">
-        {launchErrorContext && (
-          <TaskChatLaunchError
-            taskId={launchErrorContext.taskId}
-            workspaceId={launchErrorContext.workspaceId}
-            statusSummary={launchStatusSummary}
-            sessionId={resolvedSessionId}
-            sessionMetadata={session?.metadata}
-            repositories={launchErrorContext.repositories}
-          />
-        )}
+      <PanelBody padding={false} scroll={false} className="relative overflow-hidden">
         <TaskMarkdownFileLinkProvider
           taskId={taskId}
           sessionId={resolvedSessionId}
@@ -1213,8 +1202,8 @@ export const TaskChatPanel = memo(function TaskChatPanel({
             anchoredBarHeight={showAnchoredBar && lastPromptMessage ? anchoredBarHeight : 0}
             isVisible={transcriptIsVisible}
             launchErrorOwned={launchErrorOwned}
-            launchErrorStamp={launchErrorOwned ? activeLaunchError?.stamp : undefined}
-            launchErrorOccurredAt={launchErrorOwned ? activeLaunchError?.occurred_at : undefined}
+            launchErrorStamp={launchErrorOwned ? taskLaunchError?.stamp : undefined}
+            launchErrorOccurredAt={launchErrorOwned ? taskLaunchError?.occurred_at : undefined}
             stickyPromptBar={
               showAnchoredBar && lastPromptMessage ? (
                 <AnchoredLastPromptBar
@@ -1245,6 +1234,7 @@ export const TaskChatPanel = memo(function TaskChatPanel({
           <ClarificationPanelSection
             pending={Boolean(pendingClarification)}
             messages={pendingClarificationGroup}
+            agentDisconnected={session?.pending_action === null}
             onResolved={handleClarificationResolved}
             shortcutScopeRef={panelRef}
             maxHeightVh={50}

@@ -348,6 +348,73 @@ the Kandev service first provides the clearest maintenance boundary.
 
 </details>
 
+## Office run history retention
+
+Open **Settings > System > Data & Logs** to manage automatic deletion of old
+Office run history. Deletion is enabled by default. The first sweep starts five
+minutes after the backend starts or after you enable deletion.
+
+The first sweep for each history table is a preview. It reports the rows that
+would be deleted and removes no rows. A later sweep can delete eligible rows.
+Deletion is permanent. Back up the database before you enable deletion if you
+need to keep old history outside the configured window.
+
+The retention window controls the age of rows that can be deleted. The minimum
+kept per owner control keeps the newest rows for each routine or agent, even
+when those rows are older than the window. A floor of zero removes this extra
+protection. Run event, route attempt, and skill rows are deleted with their
+parent run.
+
+The page shows the current policy, retained row counts, preview results, the
+last sweep, and any backlog or errors. Counts continue to update when deletion
+is disabled, so you can monitor growth before you enable it again.
+
+To disable automatic deletion:
+
+1. Open **Settings > System > Data & Logs**.
+2. Clear **Delete eligible run history**.
+3. Select **Save changes**.
+4. Check the retention status. It must show that deletion is disabled.
+
+## Messages compaction
+
+Open **Settings > System > Data & Logs** to reduce old tool details in a SQLite
+database. **Messages compaction** is independent of Office run history retention
+and is disabled by default. The initial period is three calendar months.
+
+1. Set **Tasks inactive for** to whole weeks or calendar months.
+2. Select **Analyze savings** to estimate the reduction before enabling cleanup.
+   Analysis is optional and does not remove message payloads.
+3. Select **Automatic compaction**.
+4. Choose **Create backup (recommended)** or **Continue without backup**.
+5. Select **Save changes**. A selected backup must finish verification before
+   cleanup starts. If preparation fails, retry it or cancel preparation.
+
+The first cleanup starts after preparation. Later checks run every 24 hours while the
+backend is running. **Compact messages now** uses the saved policy. Disabling cleanup
+stops later batches, but does not restore details already removed.
+
+Activity includes task and session updates and conversation messages. Renaming
+a task can extend its protection. Recent activity, active or waiting sessions,
+queued work, and pending input protect a task at any age.
+
+Cleanup retains tool messages, titles, commands, status, timestamps, and useful
+summaries. It removes supported result bodies and generic tool inputs. Old
+conversations show when tool details were removed. Human and assistant prose,
+plans, permissions, todos, and attachment records remain. Unknown formats,
+protected structured results, and oversized payloads appear in skipped counts.
+If an eligibility check times out, Kandev keeps that task and reports a partial
+result. The next daily pass can retry it.
+
+The estimate measures payload bytes. It does not predict a database-file size
+or backup-duration reduction. Cleanup makes space reusable inside SQLite.
+Use the separate database compaction action during a quiet period to shrink the
+file. Existing backups keep their size, and creating a backup needs more disk space.
+
+Removal is permanent within the current database. Restoring a backup replaces
+the whole database and can remove newer changes. Keep any backup you need before
+deleting it. Other database engines show this feature as unavailable.
+
 ## Database operation
 
 > **Single-owner rule:** SQLite uses one writer connection in WAL mode; only one Kandev backend should own the file. **Factory reset** is destructive and removes managed data after creating a pre-reset backup.
@@ -424,7 +491,7 @@ Switching `database.driver` does not migrate data. PostgreSQL and shared NATS re
 
 Open **Settings > System > Backups**.
 
-1. Click **Create snapshot**. Kandev runs SQLite `VACUUM INTO`, including committed WAL frames, writes a temporary sidecar, then atomically renames it to `manual-<nanoseconds>.db`.
+1. Click **Create snapshot**. Kandev runs SQLite `VACUUM INTO`, including committed WAL frames, writes into a private temporary directory, then atomically publishes the snapshot to `manual-<nanoseconds>.db`.
 2. Wait for the manual row to appear. The browser waits up to 15 seconds; on a large database the backend job can continue after that UI timeout, so reload before retrying.
 3. Download the snapshot and copy it off the host.
 4. Back up `<home>/data/master.key` with owner-only access if you need encrypted secrets to remain usable.

@@ -79,7 +79,7 @@ export interface TaskCreateDialogProps {
   onSuccess?: (
     task: Task,
     mode: "create" | "edit",
-    meta?: { taskSessionId?: string | null; willNavigate?: boolean },
+    meta?: { taskSessionId?: string | null; willNavigate?: boolean; autoFocus?: boolean },
   ) => void;
   onCreateSession?: (data: {
     prompt: string;
@@ -647,7 +647,7 @@ export type SubmitHandlersDeps = {
   onSuccess?: (
     task: Task,
     mode: "create" | "edit",
-    meta?: { taskSessionId?: string | null; willNavigate?: boolean },
+    meta?: { taskSessionId?: string | null; willNavigate?: boolean; autoFocus?: boolean },
   ) => void;
   onCreateSession?: (data: {
     prompt: string;

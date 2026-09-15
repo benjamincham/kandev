@@ -73,9 +73,10 @@ async function selectFixtureBranch(page: Page): Promise<void> {
   const branch = page.getByTestId("remote-branch-chip-trigger");
   await expect(branch).toHaveCount(1);
   await expect(branch).toBeEnabled({ timeout: 15_000 });
-  await branch.dispatchEvent("click");
-  const option = page.getByRole("option").filter({ hasText: FIXTURE_BRANCH });
-  await expect(option).toBeVisible({ timeout: 30_000 });
+  await branch.tap();
+  const option = page.getByRole("option", { name: FIXTURE_BRANCH, exact: false });
+  await expect(option).toHaveCount(1);
+  await expect(option).toBeVisible({ timeout: 15_000 });
   await option.dispatchEvent("click");
   await expect(branch).toContainText(FIXTURE_BRANCH);
 }
