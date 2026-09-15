@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -2067,20 +2068,56 @@ func isSessionUnknownErr(err error) bool {
 	return hasCanonicalSessionLoadMessage(err, "Resource not found")
 }
 
-// isSessionLoadFallbackErr reports the small set of session/load failures for
-// which replacing the provider conversation is known to be safe. Errors from
-// the agentctl WebSocket boundary are message-only, so retain the structured
-// ACP checks and match only their canonical projected messages here.
-func isSessionLoadFallbackErr(err error) bool {
-	if err == nil {
+const (
+	jsonRPCInternalError         = -32603
+	missingProviderRolloutPrefix = "no rollout found for thread id "
+)
+
+type sessionLoadRequestError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    struct {
+		Details string `json:"details"`
+	} `json:"data"`
+}
+
+// isMissingProviderRolloutErr recognizes Codex's explicit not-found response
+// after its process-local rollout state disappeared. The session ID must match
+// the one Kandev attempted to load; unrelated internal errors remain fatal.
+func isMissingProviderRolloutErr(err error, expectedSessionID string) bool {
+	if err == nil || strings.TrimSpace(expectedSessionID) == "" {
 		return false
 	}
-	if isMethodNotFoundErr(err) || isSessionUnknownErr(err) {
-		return true
+	var reqErr *acp.RequestError
+	if errors.As(err, &reqErr) {
+		encoded, marshalErr := json.Marshal(reqErr)
+		if marshalErr == nil && matchesMissingProviderRollout(encoded, expectedSessionID) {
+			return true
+		}
 	}
-	return hasCanonicalSessionLoadMessage(err, "Method not found") ||
-		hasCanonicalSessionLoadMessage(err, "agent does not support session loading (LoadSession capability is false)") ||
-		hasCanonicalSessionLoadMessage(err, "Resource not found")
+	message := err.Error()
+	for offset := strings.IndexByte(message, '{'); offset >= 0; {
+		candidate := message[offset:]
+		if matchesMissingProviderRollout([]byte(candidate), expectedSessionID) {
+			return true
+		}
+		next := strings.IndexByte(candidate[1:], '{')
+		if next < 0 {
+			break
+		}
+		offset += next + 1
+	}
+	return false
+}
+
+func matchesMissingProviderRollout(encoded []byte, expectedSessionID string) bool {
+	var projected sessionLoadRequestError
+	if err := json.Unmarshal(encoded, &projected); err != nil {
+		return false
+	}
+	return projected.Code == jsonRPCInternalError &&
+		projected.Message == "Internal error" &&
+		projected.Data.Details == missingProviderRolloutPrefix+expectedSessionID
 }
 
 func hasCanonicalSessionLoadMessage(err error, canonical string) bool {

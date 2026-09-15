@@ -38,6 +38,17 @@ func TestInitializeSession_LoadFailureDoesNotCreateReplacement(t *testing.T) {
 			message: "authentication required",
 			reason:  RestoreReasonAuthentication,
 		},
+		{
+			name: "missing rollout for a different session",
+			message: `load session failed: failed to load session: {"code":-32603,"message":"Internal error",` +
+				`"data":{"details":"no rollout found for thread id another-session"}}`,
+			reason: RestoreReasonUnknown,
+		},
+		{
+			name:    "unstructured missing rollout phrase",
+			message: "internal error: no rollout found for thread id saved-session",
+			reason:  RestoreReasonUnknown,
+		},
 	}
 
 	for _, tt := range tests {
@@ -124,6 +135,12 @@ func TestInitializeSession_LoadCompatibilityFailureBlocksReplacement(t *testing.
 		{name: "method not found", message: "method not found", reason: RestoreReasonUnknown},
 		{name: "capability mismatch", message: "agent does not support session loading (LoadSession capability is false)", reason: RestoreReasonNativeResumeUnsupported},
 		{name: "unknown session", message: "Resource not found", reason: RestoreReasonNativeStateMissing},
+		{
+			name: "missing provider rollout",
+			message: `load session failed: failed to load session: {"code":-32603,"message":"Internal error",` +
+				`"data":{"details":"no rollout found for thread id saved-session"}}`,
+			reason: RestoreReasonUnknown,
+		},
 	}
 
 	for _, tt := range tests {
