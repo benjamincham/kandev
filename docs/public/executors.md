@@ -245,7 +245,7 @@ Use Local for an intentionally shared checkout, a controlled single task, or a r
 
 ## Workspace sources
 
-An idle, non-archived repository-backed task can add sources from its **Files** panel. Repository sources (saved workspace repository, local Git repository, or remote Git repository) are supported on **Worktree**, **Local/Local PC**, **Local Docker**, **Kubernetes**, **SSH**, and **Sprites**. Worktree materializes Remote Git from Kandev's owned host cache. Docker, Kubernetes, SSH, and Sprites clone local Git sources and therefore require a cloneable origin; Worktree and Local/Local PC can use the host repository directly.
+An idle, non-archived task with a prepared workspace can add sources from **Files > + > Add repositories or folders**. Repository sources (saved workspace repository, local Git repository, or remote Git repository) are supported on **Worktree**, **Local/Local PC**, **Local Docker**, **Kubernetes**, **SSH**, and **Sprites**. Worktree materializes Remote Git from Kandev's owned host cache. Docker, Kubernetes, SSH, and Sprites clone repository sources inside the current executor workspace and require a cloneable origin for local Git rows; Worktree and Local/Local PC can use host repositories directly. This flow also works for Local folder and scratch tasks when their workspace is prepared.
 
 Every repository row records a base branch. Worktree, Docker, SSH, and Sprites may also materialize an existing checkout branch for repository rows. Local/Local PC always uses the repository's current checkout and does not offer or perform a branch switch.
 
@@ -256,7 +256,7 @@ stores the relative destination and excludes the nested worktree from the outer 
 staging. Parent-rooted tasks add repository siblings directly. Workspace-root expansion remains
 unavailable until explicit idle session recovery is supported.
 
-Arbitrary folders are supported only on **Worktree** and **Local/Local PC**. They remain live host paths; Kandev links them into its task workspace and never copies, moves, or deletes their contents. Docker and remote executors do not offer folders and reject a forged folder request. Remote Docker remains unavailable because its runtime is not implemented.
+Arbitrary folders are supported only on **Worktree** and **Local/Local PC**. They remain live host paths; Kandev links them into the established task workspace and never copies, moves, or deletes their contents. Local folder and scratch workspaces keep their current root, CWD, and running processes while sources are added. Docker and remote executors do not offer folders and reject a forged folder request. **Upload folder** is a separate copy flow when uploads are supported. Remote Docker remains unavailable because its runtime is not implemented.
 
 Source batches are atomic: if validation, cloning, or runtime adoption fails, Kandev removes the new records and Kandev-owned entries while preserving existing task contents. Persisted attachments are reapplied after reload, relaunch, or **Reset Environment**; a previously attached folder that later disappears is reported instead of silently skipped. See [Tasks and workflows](tasks-and-workflows.md#add-sources-to-an-existing-task).
 

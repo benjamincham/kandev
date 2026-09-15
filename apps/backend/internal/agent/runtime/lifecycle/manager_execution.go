@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -425,20 +424,15 @@ func validateWorkspaceInfoForExecution(ctx context.Context, info *WorkspaceInfo)
 		return ErrSessionWorkspaceNotReady
 	}
 	for index, repository := range info.WorkspaceRepositories {
-		candidate := workspaceRepositoryCandidate(info.WorkspacePath, info.WorkspaceLayout, repository.RepoName, repository.WorkspaceRelativePath)
-		if repository.WorkspaceRelativePath == "" && info.WorkspaceLayout != workspaceLayoutTaskRoot && index > 0 {
-			candidate = filepath.Join(info.WorkspacePath, workspaceRepositoryEntryName(repository.RepoName))
-		} else if repository.WorkspaceRelativePath == "" && info.WorkspaceLayout != workspaceLayoutTaskRoot && index == 0 && len(info.WorkspaceRepositories) > 1 {
-			// Multi-repository worktree layouts use a task root. Local layouts
-			// may use the primary repository itself as the root, so prefer the
-			// root when it validates and otherwise try its named child.
-			expected := localWorkspaceExpectedRepository(info, repository)
-			if validateLocalRepositoryWorkspace(ctx, candidate, expected) != nil {
-				candidate = filepath.Join(info.WorkspacePath, workspaceRepositoryEntryName(repository.RepoName))
+		var validationErr error
+		for _, candidate := range workspaceRepositoryValidationCandidates(info.WorkspacePath, info.WorkspaceLayout, info.WorkspaceRepositories, index) {
+			validationErr = validateLocalRepositoryWorkspace(ctx, candidate, localWorkspaceExpectedRepository(info, repository))
+			if validationErr == nil {
+				break
 			}
 		}
-		if err := validateLocalRepositoryWorkspace(ctx, candidate, localWorkspaceExpectedRepository(info, repository)); err != nil {
-			return err
+		if validationErr != nil {
+			return validationErr
 		}
 	}
 	return nil
@@ -902,7 +896,7 @@ type executionEnvironmentPreparation struct {
 
 func (m *Manager) reconcileExecutionWorkspace(ctx context.Context, taskID string, info *WorkspaceInfo) error {
 	owner := ownedDirectoryLinkOwner(taskID, info.TaskDirName)
-	if err := reconcileWorkspaceSources(ctx, info.WorkspacePath, info.WorkspaceFolders, owner); err != nil {
+	if err := reconcileWorkspaceSourcesAtLayout(ctx, info.WorkspacePath, info.WorkspaceLayout, info.WorkspaceFolders, owner); err != nil {
 		return err
 	}
 	if info.ExecutorType == string(models.ExecutorTypeLocal) || info.ExecutorType == "local_pc" {
