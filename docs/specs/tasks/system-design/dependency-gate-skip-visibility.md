@@ -64,9 +64,8 @@ Debug.
 `TestDependencyBlocksAutoStartWarnsOnBlockedSkip` in
 `event_handlers_dependencies_test.go` drives the gate with a blocked reader,
 asserts exactly one WARN entry with the event-prefixed message, and checks the
-`task_id` and `blocked_reason` fields. Existing tests in the same file cover
-the unblocked and lookup-error paths, proving no WARN is emitted for a passing
-gate and the error path keeps its own entry.
+`task_id` and `blocked_reason` fields. This test covers the blocked path.
+The unblocked and lookup-error paths are not asserted in this file.
 
 ## Implementation Plans
 

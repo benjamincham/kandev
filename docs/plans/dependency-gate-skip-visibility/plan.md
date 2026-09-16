@@ -59,9 +59,7 @@ keep `task_id` and `blocked_reason`. No behavior change accompanies the level.
   filters the observed zap log for the blocked-skip message at exactly
   `WarnLevel` and asserts one entry whose `task_id` and `blocked_reason` fields
   match the blocked reader (REQ-TASKS-DEPENDENCY-GATE-SKIP-VISIBILITY-001.1).
-- Existing tests in the same file already prove the unblocked path emits no
-  blocked-skip entry (criterion .2) and the lookup-error path keeps its own
-  WARN entry.
+- The unblocked and lookup-error paths are not asserted in this file.
 
 ## Work orders
 

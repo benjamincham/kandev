@@ -91,8 +91,9 @@ None beyond the bounded per-evaluation log volume noted in the plan.
 Implemented the level change and the regression test. The observed-logger test
 filters for the blocked-skip message at exactly `WarnLevel`, asserts a single
 entry, and checks the `task_id` and `blocked_reason` fields; it was verified
-red against the pre-fix Debug logging before the fix. Existing tests cover the
-unblocked and lookup-error paths.
+red against the pre-fix Debug logging before the fix. This test covers the
+blocked path. The unblocked and lookup-error paths are not asserted in this
+file.
 
 - `go test ./internal/orchestrator -run 'TestDependency|TestResolution' -count=1`:
   passed.
