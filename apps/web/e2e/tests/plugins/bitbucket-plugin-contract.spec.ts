@@ -20,7 +20,9 @@ async function installFixture(page: Page): Promise<void> {
   await page.getByTestId("install-plugin-tab-upload").click();
   await page.getByTestId("install-plugin-file-input").setInputFiles(PACKAGE_PATH);
   await page.getByTestId("install-plugin-upload-submit").click();
-  await expect(page.getByTestId(`plugin-row-${PLUGIN_ID}`)).toBeVisible({ timeout: 15_000 });
+  const row = page.getByTestId(`plugin-row-${PLUGIN_ID}`);
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  await expect(row.getByText("Active", { exact: true })).toBeVisible({ timeout: 30_000 });
 }
 
 function visibleEditor(scope: Locator | Page): Locator {
@@ -111,6 +113,16 @@ test.describe("Bitbucket plugin contract", () => {
 
     // Native Link submenu action invokes the declared task-scoped action.
     await kanban.goto();
+    const taskCard = kanban.taskCard(task.id);
+    try {
+      await expect(taskCard).toBeVisible({ timeout: 10_000 });
+    } catch {
+      // The task can finish between the create response and the first board
+      // snapshot. Reload once after the turn settles so the board fetch sees
+      // the durable task row instead of relying on a missed task.updated event.
+      await kanban.goto();
+      await expect(taskCard).toBeVisible({ timeout: 30_000 });
+    }
     await kanban.openTaskContextMenu(task.id);
     const linkSubmenu = testPage.getByTestId("task-context-link");
     await linkSubmenu.focus();

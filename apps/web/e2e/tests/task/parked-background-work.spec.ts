@@ -147,14 +147,21 @@ test.describe("Parked on background work", () => {
       KANDEV_PARKED_PROBE_INTERVAL: PARKED_PROBE_INTERVAL,
       KANDEV_MOCK_PROVIDERS: "claude-acp",
     });
-    const { agents } = await apiClient.listAgents();
-    const claudeAgent = agents.find((agent) => agent.name === "claude-acp");
-    const profileId = claudeAgent?.profiles[0]?.id;
-    if (!profileId) {
-      throw new Error(
-        "E2E seed has no claude-acp mock profile after KANDEV_MOCK_PROVIDERS restart",
-      );
-    }
+    let profileId = "";
+    await expect
+      .poll(
+        async () => {
+          const { agents } = await apiClient.listAgents();
+          profileId = agents.find((agent) => agent.name === "claude-acp")?.profiles[0]?.id ?? "";
+          return profileId;
+        },
+        {
+          message: "E2E seed should expose a claude-acp mock profile after restart",
+          timeout: 30_000,
+          intervals: [250, 500, 1000],
+        },
+      )
+      .not.toBe("");
     claudeAcpProfileId = profileId;
   });
 
