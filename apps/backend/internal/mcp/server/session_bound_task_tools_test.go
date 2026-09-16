@@ -68,6 +68,42 @@ func TestSessionBoundChangeRequestToolsRejectTaskIDInsidePatch(t *testing.T) {
 	assert.Contains(t, content.Text, "This tool is bound to the calling task; cross-task targeting is not supported")
 }
 
+func TestSessionBoundChangeRequestToolsNameTaskIDWithOtherValidationErrors(t *testing.T) {
+	backend := &testBackend{}
+	s := newTaskModeServer(t, backend, "task-current")
+
+	result := callTool(t, s, "update_task_change_request_automation_kandev", map[string]interface{}{
+		"task_id": "task-parent",
+	})
+
+	require.True(t, result.IsError)
+	assert.Empty(t, backend.lastAction, "rejected arguments must not reach the backend")
+	content, ok := result.Content[0].(mcp.TextContent)
+	require.True(t, ok)
+	assert.Contains(t, content.Text, `unknown arguments: "task_id"`)
+	assert.Contains(t, content.Text, "This tool is bound to the calling task; cross-task targeting is not supported")
+	assert.Contains(t, content.Text, `missing: "patch", "target"`)
+	assert.NotContains(t, content.Text, "task-parent")
+}
+
+func TestSessionBoundChangeRequestToolsNameNestedTaskIDWithOtherValidationErrors(t *testing.T) {
+	backend := &testBackend{}
+	s := newTaskModeServer(t, backend, "task-current")
+
+	result := callTool(t, s, "update_task_change_request_automation_kandev", map[string]interface{}{
+		"target": map[string]interface{}{"scope": "association"},
+		"patch":  map[string]interface{}{"task_id": "task-parent"},
+	})
+
+	require.True(t, result.IsError)
+	assert.Empty(t, backend.lastAction, "rejected arguments must not reach the backend")
+	content, ok := result.Content[0].(mcp.TextContent)
+	require.True(t, ok)
+	assert.Contains(t, content.Text, `unknown arguments: "task_id" at /patch`)
+	assert.Contains(t, content.Text, "This tool is bound to the calling task; cross-task targeting is not supported")
+	assert.NotContains(t, content.Text, "task-parent")
+}
+
 func TestSessionBoundChangeRequestToolsDeclareBinding(t *testing.T) {
 	s := newTaskModeServer(t, &testBackend{}, "task-current")
 

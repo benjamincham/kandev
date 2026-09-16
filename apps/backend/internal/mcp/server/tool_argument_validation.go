@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -121,12 +120,11 @@ func sanitizedToolArgumentError(toolName string, err error) error {
 	}
 	return fmt.Errorf("invalid arguments for %s: validation failed at %s (keyword: %s%s%s)",
 		toolName, validationInstancePath(failure.InstanceLocation), keyword,
-		missingRequiredProperties(failure), unknownArgumentDetail(toolName, failure))
+		missingRequiredProperties(failure), unknownArgumentDetail(toolName, validationErr))
 }
 
-// sessionBoundTaskTools act on the calling session's own task and declare no
-// task_id argument. An agent that still passes task_id gets the binding rule
-// in the rejection itself so it self-corrects instead of retrying.
+// sessionBoundTaskTools identifies tools whose task scope is owned by the
+// calling session and cannot be selected through arguments.
 var sessionBoundTaskTools = map[string]bool{
 	"get_task_change_requests_kandev":              true,
 	"update_task_change_request_automation_kandev": true,
@@ -134,25 +132,76 @@ var sessionBoundTaskTools = map[string]bool{
 
 const sessionBoundTaskRule = "This tool is bound to the calling task; cross-task targeting is not supported."
 
-// unknownArgumentDetail names the properties an additionalProperties failure
-// rejected, so the caller sees exactly which arguments to drop.
-func unknownArgumentDetail(toolName string, failure *jsonschema.ValidationError) string {
-	additional, ok := failure.ErrorKind.(*kind.AdditionalProperties)
-	if !ok || len(additional.Properties) == 0 {
+// unknownArgumentDetail traverses every validation failure and groups rejected
+// properties by instance path before it formats the diagnostic.
+func unknownArgumentDetail(toolName string, root *jsonschema.ValidationError) string {
+	propertiesByPath := collectUnknownArgumentsByPath(root)
+	if len(propertiesByPath) == 0 {
 		return ""
 	}
 
-	properties := slices.Clone(additional.Properties)
-	sort.Strings(properties)
-	quoted := make([]string, len(properties))
-	for i, property := range properties {
-		quoted[i] = strconv.Quote(property)
+	paths := make([]string, 0, len(propertiesByPath))
+	for path := range propertiesByPath {
+		paths = append(paths, path)
 	}
-	detail := "; unknown arguments: " + strings.Join(quoted, ", ")
-	if sessionBoundTaskTools[toolName] && slices.Contains(properties, mcpKeyTaskID) {
+	sort.Strings(paths)
+	parts := make([]string, 0, len(paths))
+	hasTaskID := false
+	for _, path := range paths {
+		properties := make([]string, 0, len(propertiesByPath[path]))
+		for property := range propertiesByPath[path] {
+			properties = append(properties, property)
+			if property == mcpKeyTaskID {
+				hasTaskID = true
+			}
+		}
+		sort.Strings(properties)
+		quoted := make([]string, len(properties))
+		for i, property := range properties {
+			quoted[i] = strconv.Quote(property)
+		}
+		part := strings.Join(quoted, ", ")
+		if len(paths) > 1 || path != "$" {
+			part += " at " + path
+		}
+		parts = append(parts, part)
+	}
+
+	detail := "; unknown arguments: " + strings.Join(parts, "; ")
+	if sessionBoundTaskTools[toolName] && hasTaskID {
 		detail += " " + sessionBoundTaskRule
 	}
 	return detail
+}
+
+func collectUnknownArgumentsByPath(root *jsonschema.ValidationError) map[string]map[string]struct{} {
+	propertiesByPath := make(map[string]map[string]struct{})
+	collectUnknownArguments(root, propertiesByPath)
+	return propertiesByPath
+}
+
+func collectUnknownArguments(
+	failure *jsonschema.ValidationError,
+	propertiesByPath map[string]map[string]struct{},
+) {
+	if failure == nil {
+		return
+	}
+	additional, ok := failure.ErrorKind.(*kind.AdditionalProperties)
+	if ok && len(additional.Properties) > 0 {
+		path := validationInstancePath(failure.InstanceLocation)
+		properties := propertiesByPath[path]
+		if properties == nil {
+			properties = make(map[string]struct{}, len(additional.Properties))
+			propertiesByPath[path] = properties
+		}
+		for _, property := range additional.Properties {
+			properties[property] = struct{}{}
+		}
+	}
+	for _, cause := range failure.Causes {
+		collectUnknownArguments(cause, propertiesByPath)
+	}
 }
 
 func missingRequiredProperties(err *jsonschema.ValidationError) string {
