@@ -197,6 +197,14 @@ type SessionLauncher interface {
 	RenameSession(ctx context.Context, sessionID, name string) error
 }
 
+// queueAdmissionReadinessChecker lets queue producers recheck whether a
+// session became promptable while the queue entry was being admitted. The
+// method is optional so test and alternate launchers do not need to implement
+// the orchestrator's queue lifecycle.
+type queueAdmissionReadinessChecker interface {
+	CheckQueueAdmissionReadiness(context.Context, messagequeue.QueueSessionIdentity)
+}
+
 // TaskStopper exposes the narrow coordinator halt operation used by
 // stop_task_kandev. The MCP layer owns authorization; lifecycle semantics stay
 // in the orchestrator.
@@ -3389,6 +3397,9 @@ func (h *Handlers) queueTaskMessage(ctx context.Context, taskID string, session 
 		return taskMessageDispatchResult{}, fmt.Errorf("failed to queue message: %w", err)
 	}
 	h.publishQueueStatusEvent(ctx, identity, queue)
+	if checker, ok := h.sessionLauncher.(queueAdmissionReadinessChecker); ok {
+		checker.CheckQueueAdmissionReadiness(ctx, identity)
+	}
 	return taskMessageDispatchResult{status: taskMessageStatusQueued, sessionID: session.ID, queuedEntryID: queued.ID}, nil
 }
 
