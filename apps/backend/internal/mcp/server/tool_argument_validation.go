@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -118,8 +119,40 @@ func sanitizedToolArgumentError(toolName string, err error) error {
 		failure = validationErr
 		keyword = "schema"
 	}
-	return fmt.Errorf("invalid arguments for %s: validation failed at %s (keyword: %s%s)",
-		toolName, validationInstancePath(failure.InstanceLocation), keyword, missingRequiredProperties(failure))
+	return fmt.Errorf("invalid arguments for %s: validation failed at %s (keyword: %s%s%s)",
+		toolName, validationInstancePath(failure.InstanceLocation), keyword,
+		missingRequiredProperties(failure), unknownArgumentDetail(toolName, failure))
+}
+
+// sessionBoundTaskTools act on the calling session's own task and declare no
+// task_id argument. An agent that still passes task_id gets the binding rule
+// in the rejection itself so it self-corrects instead of retrying.
+var sessionBoundTaskTools = map[string]bool{
+	"get_task_change_requests_kandev":              true,
+	"update_task_change_request_automation_kandev": true,
+}
+
+const sessionBoundTaskRule = "This tool is bound to the calling task; cross-task targeting is not supported."
+
+// unknownArgumentDetail names the properties an additionalProperties failure
+// rejected, so the caller sees exactly which arguments to drop.
+func unknownArgumentDetail(toolName string, failure *jsonschema.ValidationError) string {
+	additional, ok := failure.ErrorKind.(*kind.AdditionalProperties)
+	if !ok || len(additional.Properties) == 0 {
+		return ""
+	}
+
+	properties := slices.Clone(additional.Properties)
+	sort.Strings(properties)
+	quoted := make([]string, len(properties))
+	for i, property := range properties {
+		quoted[i] = strconv.Quote(property)
+	}
+	detail := "; unknown arguments: " + strings.Join(quoted, ", ")
+	if sessionBoundTaskTools[toolName] && slices.Contains(properties, mcpKeyTaskID) {
+		detail += " " + sessionBoundTaskRule
+	}
+	return detail
 }
 
 func missingRequiredProperties(err *jsonschema.ValidationError) string {

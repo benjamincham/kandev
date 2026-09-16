@@ -29,7 +29,7 @@ func TestToolArgumentValidationRejectsUnknownTopLevelArgument(t *testing.T) {
 	content, ok := result.Content[0].(mcp.TextContent)
 	require.True(t, ok)
 	assert.Equal(t,
-		"invalid arguments for list_workspaces_kandev: validation failed at $ (keyword: additionalProperties)",
+		`invalid arguments for list_workspaces_kandev: validation failed at $ (keyword: additionalProperties; unknown arguments: "unexpected")`,
 		content.Text)
 }
 
