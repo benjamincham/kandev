@@ -13,19 +13,21 @@ legacy_specs: []
 ## Overview
 
 Keep the shared MCP validation boundary, but make its diagnostic include all
-unknown properties when more than one schema failure occurs. This repair keeps
-the existing redaction, task binding, schema, handler, and backend contracts.
-The package records the maintainer change that repairs the contributor PR.
+unknown and missing properties when more than one schema failure occurs. This
+repair keeps the existing redaction, task binding, schema, handler, and
+backend contracts. The package records the maintainer change that repairs the
+contributor PR.
 
 ## Scope
 
 ### In scope
 
 - Traverse the complete JSON Schema validation failure tree.
-- Group and sort unknown properties by their JSON instance path.
+- Group and sort unknown and required properties by their JSON instance path.
 - Keep the session-task binding explanation when a rejected `task_id` appears.
-- Add regressions for combined required and unknown-property failures at the
-  root and inside a nested object.
+- Add regressions for combined required and unknown-property failures in a
+  closed nested object, multiple required-property branches, and a root
+  unknown property paired with a nested primary failure.
 - Prove that invalid calls do not dispatch and do not echo submitted values.
 
 ### Out of scope
@@ -37,11 +39,11 @@ The package records the maintainer change that repairs the contributor PR.
 ## Technical approach
 
 `sanitizedToolArgumentError` keeps the first failure for the primary path and
-keyword. A separate traversal visits every `ValidationError.Causes` node and
-collects `kind.AdditionalProperties` entries by instance path. The formatter
-sorts both dimensions and adds one binding explanation for the two
-session-bound task-change-request tools when a rejected property is
-`task_id`.
+keyword. Separate traversals visit every `ValidationError.Causes` node and
+collect `kind.Required` and `kind.AdditionalProperties` entries by instance
+path. The formatter sorts both dimensions and keeps an explicit `$` path when
+the primary failure is nested. It adds one binding explanation for the two
+session-bound task-change-request tools when a rejected property is `task_id`.
 
 The existing `wrapHandler` path remains the only dispatch boundary. The
 backend is not called for any validation error.
@@ -50,8 +52,8 @@ backend is not called for any validation error.
 
 | Acceptance criteria | Evidence |
 | --- | --- |
-| `AC-INTEGRATIONS-MCP-TOOL-ARGUMENT-VALIDATION-001.1` and `.2` | `apps/backend/internal/mcp/server/tool_argument_validation_test.go` and `session_bound_task_tools_test.go` prove active schemas, validation failures, and no backend dispatch. |
-| `AC-INTEGRATIONS-MCP-TOOL-ARGUMENT-VALIDATION-001.3` | `tool_argument_validation_test.go` proves required names and paths; the maintainer regressions prove combined failures retain the names. |
+| `AC-INTEGRATIONS-MCP-TOOL-ARGUMENT-VALIDATION-001.1` and `.2` | `apps/backend/internal/mcp/server/tool_argument_validation_test.go` and `session_bound_task_tools_test.go` prove active schemas, combined required/unknown failures, and no backend dispatch. |
+| `AC-INTEGRATIONS-MCP-TOOL-ARGUMENT-VALIDATION-001.3` | `tool_argument_validation_test.go` proves required and unknown names, root and nested paths, task binding, deterministic ordering, redaction, and multi-branch failures. |
 | `AC-INTEGRATIONS-MCP-TOOL-ARGUMENT-VALIDATION-001.4` through `.6` | Existing parameterless, mode-change, and open-nested-map tests remain in `tool_argument_validation_test.go`. |
 | `AC-INTEGRATIONS-MCP-TOOL-ARGUMENT-VALIDATION-001.7` and `.8` | Existing create-task normalization and handler tests retain the prompt alias and backend description contract. |
 
@@ -67,6 +69,7 @@ not change a rendered surface.
 Completed on 2026-09-16:
 
 - `go test ./internal/mcp/server -count=1` passed.
+- `go test -race ./internal/mcp/server -count=1` passed.
 - `go test ./internal/mcp/...` passed.
 - Commit hooks passed, including Go formatting, changed-code lint, harness,
   architecture, commit-message, and copy checks.

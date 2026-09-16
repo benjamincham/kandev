@@ -25,7 +25,8 @@ redaction while preventing handler and backend dispatch for invalid calls.
 ## In scope
 
 - Update `sanitizedToolArgumentError` and its unknown-property formatter.
-- Add root and nested combined-failure regressions.
+- Add root and nested combined-failure regressions, including multiple
+  required-property branches and explicit root-path formatting.
 - Assert no backend dispatch and no submitted-value echo.
 
 ## Out of scope
@@ -36,8 +37,13 @@ redaction while preventing handler and backend dispatch for invalid calls.
 
 - A call with an unknown `task_id` and missing required fields reports both
   facts, includes the session-task binding rule, and does not dispatch.
+- A closed nested object that has both missing required and unknown properties
+  reports both facts without echoing the rejected value.
 - A nested unknown `task_id` remains associated with its `/patch` path when a
   sibling branch also fails validation.
+- A root unknown property reports `at $` when a nested failure is primary.
+- Required properties from all validation branches remain visible with their
+  instance paths.
 - Diagnostics do not include the submitted task ID or other rejected values.
 
 ## Verification
@@ -88,6 +94,11 @@ Completed on 2026-09-16.
 
 - The formatter now walks all validation causes and groups unknown properties
   by instance path with deterministic ordering.
+- The formatter also walks all required-property causes and keeps explicit
+  root and nested paths when the primary failure is elsewhere.
 - Root and nested `task_id` regressions pass with missing-field and branch
   failures, no backend dispatch, and no value echo.
-- Focused MCP tests and the full internal MCP package suite pass.
+- New closed-nested and multi-branch regressions pass, including the
+  combined required/unknown topology requested in review.
+- Focused MCP tests, the race-enabled server suite, and the full internal MCP
+  package suite pass.
