@@ -95,6 +95,14 @@ type TaskRepository interface {
 	// Returns whether the row was updated.
 	UnarchiveTask(ctx context.Context, id string) (bool, error)
 	ListTasksForAutoArchive(ctx context.Context) ([]*models.Task, error)
+	// ListUnarchivedTasksWithActiveSessions returns the unarchived tasks
+	// (archived_at IS NULL) that still have at least one task_sessions row
+	// in an active DB state (CREATED/STARTING/RUNNING/WAITING_FOR_INPUT).
+	// This is the candidate list for the session reconciliation sweep's
+	// active-task pass: unarchived tasks holding active sessions whose
+	// backing execution may be gone (e.g. after a backend restart). The
+	// archived counterpart is ListArchivedTasksWithActiveSessions.
+	ListUnarchivedTasksWithActiveSessions(ctx context.Context) ([]*models.Task, error)
 	// ListArchivedTasksWithActiveSessions returns the IDs of archived tasks
 	// (archived_at IS NOT NULL) that still have at least one task_sessions
 	// row in an active DB state (CREATED/STARTING/RUNNING/WAITING_FOR_INPUT).
@@ -284,6 +292,12 @@ type WorkflowRepository interface {
 type MessageRepository interface {
 	CreateMessage(ctx context.Context, message *models.Message) error
 	GetMessage(ctx context.Context, id string) (*models.Message, error)
+	// GetLastMessageTimeBySessionIDs returns the newest task_session_messages
+	// updated_at for each requested session, in one chunked query. Sessions
+	// with no messages are absent from the result; callers fall back to the
+	// session row's own timestamps. Used by the session reconciliation sweep
+	// to measure per-session event silence.
+	GetLastMessageTimeBySessionIDs(ctx context.Context, sessionIDs []string) (map[string]time.Time, error)
 	// HasUserPromptHistory reports whether the session has ever accepted a user
 	// prompt. The durable prompt sequence remains after message deletion.
 	HasUserPromptHistory(ctx context.Context, sessionID string) (bool, error)

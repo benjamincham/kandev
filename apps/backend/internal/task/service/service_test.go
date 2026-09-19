@@ -2428,7 +2428,7 @@ func TestFinalizeCancelledSessionsStopsRetryAtDeadline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
 
-	svc.finalizeCancelledSessions(ctx, "task-deadline", nil, time.Now().Add(20*time.Millisecond))
+	svc.finalizeCancelledSessions(ctx, "task-deadline", nil, time.Now().Add(20*time.Millisecond), models.SessionArchiveCancelReason)
 
 	if got := flaky.callCount(); got != 1 {
 		t.Fatalf("CancelActiveTaskSessionsByTaskID call count = %d, want 1 after deadline", got)

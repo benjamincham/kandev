@@ -2428,7 +2428,7 @@ func (s *Service) ArchiveTask(ctx context.Context, id string) error {
 
 	// 3b. Finalize active sessions in the DB and publish their cancellation
 	// events. See finalizeCancelledSessions for the detailed rationale.
-	s.finalizeCancelledSessions(finalizeCtx, id, activeSessions, archiveDeadline)
+	s.finalizeCancelledSessions(finalizeCtx, id, activeSessions, archiveDeadline, models.SessionArchiveCancelReason)
 	var postCommitErr error
 
 	// 4. Re-read task for updated archived_at field. The archive row is
@@ -2590,7 +2590,7 @@ func waitForCancellationRetry(ctx context.Context, delay time.Duration) bool {
 const maxCancelAttempts = 3
 
 func (s *Service) cancelActiveTaskSessionsWithRetry(
-	ctx context.Context, taskID string,
+	ctx context.Context, taskID, reason string,
 ) ([]*models.TaskSession, error) {
 	const cancelRetryBackoff = 250 * time.Millisecond
 
@@ -2598,7 +2598,7 @@ func (s *Service) cancelActiveTaskSessionsWithRetry(
 	var cancelErr error
 	for attempt := 1; attempt <= maxCancelAttempts; attempt++ {
 		cancelledSessions, cancelErr = s.sessions.CancelActiveTaskSessionsByTaskID(
-			ctx, taskID, models.SessionArchiveCancelReason,
+			ctx, taskID, reason,
 		)
 		if cancelErr == nil {
 			return cancelledSessions, nil
@@ -2619,6 +2619,12 @@ func (s *Service) cancelActiveTaskSessionsWithRetry(
 // exclusively by that event, and would otherwise show a live spinner
 // forever after archive.
 //
+// reason is the TaskSession.ErrorMessage the cancellation carries ("task
+// archived", "orphaned session", ...). Callers choose the value that names
+// their path; models.IsArchiveCancelReason consumers key off the archive
+// values for unarchive resume semantics, so a non-archive reason keeps the
+// cancellation treated like an explicit stop.
+//
 // CancelActiveTaskSessionsByTaskID is bounded by its own internal 10s
 // timeout, so a single attempt can time out under SQLite writer contention
 // alone — with archived_at already committed by the caller, that would
@@ -2635,8 +2641,9 @@ func (s *Service) finalizeCancelledSessions(
 	taskID string,
 	activeSessions []*models.TaskSession,
 	deadline time.Time,
+	reason string,
 ) {
-	cancelledSessions, cancelErr := s.cancelActiveTaskSessionsWithRetry(ctx, taskID)
+	cancelledSessions, cancelErr := s.cancelActiveTaskSessionsWithRetry(ctx, taskID, reason)
 	if cancelErr != nil {
 		s.logger.Error("failed to reap active sessions on archive after retries",
 			zap.String("task_id", taskID),
@@ -2698,7 +2705,7 @@ func (s *Service) finalizeCancelledSessions(
 			s.sessionCeilingReleaser.ReleaseCeilingReservation(session.ID)
 		}
 	}
-	s.publishSessionsCancelled(detachedCtx, taskID, activeSessions, cancelledSessions, models.SessionArchiveCancelReason)
+	s.publishSessionsCancelled(detachedCtx, taskID, activeSessions, cancelledSessions, reason)
 }
 
 func (s *Service) registerTaskRuntimeStopOwners(stopTargets []taskStopTarget, force bool) {

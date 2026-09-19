@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "kandev": {
+      "transport": "streamable-http",
+      "url": "http://localhost:41001/mcp",
+      "lifecycle": "eager"
+    }
+  }
+}

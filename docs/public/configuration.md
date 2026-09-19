@@ -159,6 +159,7 @@ The launcher starts `agentctl`, performs a one-time nonce handshake, and supplie
 | YAML key                   | Environment variable              | Default | Current behavior                                                                |
 | -------------------------- | --------------------------------- | ------- | ------------------------------------------------------------------------------- |
 | `tasks.preparationTimeout` | `KANDEV_TASK_PREPARATION_TIMEOUT` | `10m`   | Positive Go duration for repository setup and executor-profile prepare scripts. |
+| `tasks.stallDetectionThreshold` | `KANDEV_TASK_STALL_DETECTION_THRESHOLD` | `2h` | Positive Go duration for the session reconciliation sweep's stall threshold. |
 
 `tasks.preparationTimeout` controls how long Kandev allows repository setup and
 executor-profile prepare scripts to run. The value uses Go duration syntax,
@@ -175,6 +176,16 @@ default, each launch-phase limit is `15m`. Preparation scripts use a separate
 context, so earlier work such as Sprite uploads does not reduce their full
 `10m` preparation budget. The environment variable overrides YAML. This is a
 startup setting, not a database or Settings value.
+
+`tasks.stallDetectionThreshold` controls the periodic session reconciliation
+sweep. When an unarchived task holds an active session with no live execution
+behind it and no session events or messages for longer than this threshold,
+Kandev emits a `task.stalled` event and logs a warning. After twice the
+threshold of silence, the sweep cancels the orphaned session so the task stops
+showing a phantom active session. Like the timeout above, only positive Go
+durations are accepted, an unset, invalid, zero, or negative value uses the
+`2h` default, the environment variable overrides YAML, and changes require a
+backend restart.
 
 ### Capacity and managed-process startup settings
 
@@ -430,6 +441,7 @@ agent:
 
 tasks:
   preparationTimeout: "10m"
+  stallDetectionThreshold: "2h"
 
 credentials:
   file: ""
