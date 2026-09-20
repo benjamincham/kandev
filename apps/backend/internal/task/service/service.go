@@ -169,10 +169,10 @@ type TaskRowLivenessProber interface {
 
 // TaskExecutionLivenessChecker reports whether a task session still has a
 // live agent execution backing it in the agent runtime's in-memory store.
-// The orphan-session reconciliation sweep uses absence-from-store as its
-// dead signal, so implementers must answer from the in-memory ExecutionStore
-// only — never lazily (re)create an execution the way the
-// GetOrEnsureExecution recovery chokepoint does.
+// Implementers must distinguish agent-owned executions from workspace-only
+// infrastructure and must answer from the store only — never lazily
+// (re)create an execution the way the GetOrEnsureExecution recovery
+// chokepoint does.
 type TaskExecutionLivenessChecker interface {
 	HasLiveExecution(sessionID string) bool
 }

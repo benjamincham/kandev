@@ -144,16 +144,35 @@ func (s *Service) runOrphanedSessionReconciliation(ctx context.Context) {
 }
 
 func (s *Service) reconcileOrphanedSessions(ctx context.Context, candidates []*models.TaskSession, staleBefore time.Time) {
+	deadline := archivecascade.ArchiveDeadline(ctx)
+	reconcileCtx, cancel := archivecascade.ContinuationContextUntil(ctx, deadline)
+	defer cancel()
+	s.reconcileOrphanedSessionsUntil(reconcileCtx, candidates, staleBefore, deadline)
+}
+
+// reconcileOrphanedSessionsUntil applies one orphan sweep within the supplied
+// admission deadline. A cancellation write may finish after that deadline
+// because the repository owns a detached write context; its post-commit
+// effects therefore receive a fresh bounded context instead of the expired
+// sweep context.
+func (s *Service) reconcileOrphanedSessionsUntil(
+	ctx context.Context,
+	candidates []*models.TaskSession,
+	staleBefore time.Time,
+	deadline time.Time,
+) {
 	repo, ok := s.sessions.(orphanedSessionRepository)
 	if !ok {
 		return
 	}
-	deadline := archivecascade.ArchiveDeadline(ctx)
-	reconcileCtx, cancel := archivecascade.ContinuationContextUntil(ctx, deadline)
-	defer cancel()
 	for _, session := range candidates {
 		if session == nil || session.ID == "" {
 			continue
+		}
+		if !time.Now().Before(deadline) {
+			s.logger.Debug("orphaned-session reconciliation: admission deadline reached",
+				zap.Time("deadline", deadline))
+			return
 		}
 		// Re-check liveness at the moment of the write, not just at the
 		// candidate read: a launch that raced the grace window since the read
@@ -164,7 +183,7 @@ func (s *Service) reconcileOrphanedSessions(ctx context.Context, candidates []*m
 		if s.executionLivenessChecker.HasLiveExecution(session.ID) {
 			continue
 		}
-		cancelled, err := repo.CancelRunningTaskSessionByID(reconcileCtx, session.ID, models.SessionOrphanedCancelReason, staleBefore)
+		cancelled, err := repo.CancelRunningTaskSessionByID(ctx, session.ID, models.SessionOrphanedCancelReason, staleBefore)
 		if err != nil {
 			s.logger.Warn("orphaned-session reconciliation: failed to cancel session",
 				zap.String("session_id", session.ID),
@@ -180,8 +199,13 @@ func (s *Service) reconcileOrphanedSessions(ctx context.Context, candidates []*m
 			zap.String("task_id", session.TaskID),
 			zap.String("session_id", session.ID),
 			zap.String("previous_state", string(session.State)))
-		s.notifyCancelledSessions(reconcileCtx, session.TaskID,
+		completionDeadline := time.Now().Add(taskPublicationTimeout)
+		completionCtx, cancelCompletion := context.WithDeadline(
+			context.WithoutCancel(ctx), completionDeadline,
+		)
+		s.notifyCancelledSessions(completionCtx, session.TaskID,
 			[]*models.TaskSession{session}, []*models.TaskSession{cancelled},
-			models.SessionOrphanedCancelReason, deadline)
+			models.SessionOrphanedCancelReason, completionDeadline)
+		cancelCompletion()
 	}
 }

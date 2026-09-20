@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 
 	"github.com/kandev/kandev/internal/events"
 	"github.com/kandev/kandev/internal/task/models"
+	"github.com/kandev/kandev/internal/task/repository"
 )
 
 // fakeExecutionLiveness is the test double for the orphan sweep's
@@ -208,6 +210,116 @@ func TestService_OrphanedSessionReconciliationRequiresLivenessChecker(t *testing
 	}
 	if session.State != models.TaskSessionStateRunning {
 		t.Fatalf("session state = %q, want RUNNING (sweep must stay inert without the liveness seam)", session.State)
+	}
+}
+
+func TestService_OrphanedSessionReconciliationStopsAtAdmissionDeadline(t *testing.T) {
+	svc, eventBus, repo := createTestService(t)
+	setupCtx := context.Background()
+	seedOrphanSweepFixtures(t, repo)
+	seedOrphanSweepTask(t, repo, "task-expired-pass", false)
+	stale := time.Now().UTC().Add(-30 * time.Minute)
+	if err := repo.CreateTaskSession(setupCtx, &models.TaskSession{
+		ID: "session-expired-pass", TaskID: "task-expired-pass", State: models.TaskSessionStateRunning,
+		AgentProfileID: "agent-1", IsPrimary: true, UpdatedAt: stale, StartedAt: stale,
+	}); err != nil {
+		t.Fatalf("CreateTaskSession: %v", err)
+	}
+	candidate, err := repo.GetTaskSession(setupCtx, "session-expired-pass")
+	if err != nil {
+		t.Fatalf("GetTaskSession: %v", err)
+	}
+	svc.SetExecutionLivenessChecker(&fakeExecutionLiveness{})
+
+	expiredCtx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	svc.reconcileOrphanedSessions(expiredCtx, []*models.TaskSession{candidate}, stale)
+
+	session, err := repo.GetTaskSession(setupCtx, "session-expired-pass")
+	if err != nil {
+		t.Fatalf("GetTaskSession after expired pass: %v", err)
+	}
+	if session.State != models.TaskSessionStateRunning {
+		t.Fatalf("session state = %q, want RUNNING after an expired pass", session.State)
+	}
+	if sessionCancelledEventPublished(eventBus, "session-expired-pass") {
+		t.Fatal("expired pass must not publish a cancellation event")
+	}
+}
+
+type delayedOrphanSessionRepository struct {
+	*sqliterepo.Repository
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (r *delayedOrphanSessionRepository) CancelRunningTaskSessionByID(
+	ctx context.Context,
+	sessionID, reason string,
+	staleBefore time.Time,
+) (*models.TaskSession, error) {
+	r.once.Do(func() { close(r.entered) })
+	<-r.release
+	return r.Repository.CancelRunningTaskSessionByID(ctx, sessionID, reason, staleBefore)
+}
+
+func TestService_OrphanedSessionReconciliationUsesFreshEffectsContextAfterDeadline(t *testing.T) {
+	delayed := &delayedOrphanSessionRepository{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	svc, eventBus, repo := createTestServiceWithSessionsRepo(t, func(repo *sqliterepo.Repository) repository.SessionRepository {
+		delayed.Repository = repo
+		return delayed
+	})
+	setupCtx := context.Background()
+	seedOrphanSweepFixtures(t, repo)
+	seedOrphanSweepTask(t, repo, "task-late-effects", false)
+	stale := time.Now().UTC().Add(-30 * time.Minute)
+	if err := repo.CreateTaskSession(setupCtx, &models.TaskSession{
+		ID: "session-late-effects", TaskID: "task-late-effects", State: models.TaskSessionStateRunning,
+		AgentProfileID: "agent-1", IsPrimary: true, UpdatedAt: stale, StartedAt: stale,
+	}); err != nil {
+		t.Fatalf("CreateTaskSession: %v", err)
+	}
+	candidate, err := repo.GetTaskSession(setupCtx, "session-late-effects")
+	if err != nil {
+		t.Fatalf("GetTaskSession: %v", err)
+	}
+	clarifications := &recordingTaskClarificationCanceller{}
+	svc.SetClarificationCanceller(clarifications)
+	svc.SetExecutionLivenessChecker(&fakeExecutionLiveness{})
+
+	passCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		svc.reconcileOrphanedSessions(passCtx, []*models.TaskSession{candidate}, stale.Add(time.Second))
+		close(done)
+	}()
+	select {
+	case <-delayed.entered:
+	case <-time.After(time.Second):
+		t.Fatal("orphan cancellation did not start")
+	}
+	select {
+	case <-passCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("reconciliation pass did not reach its deadline")
+	}
+	close(delayed.release)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("reconciliation did not finish after the delayed write was released")
+	}
+
+	if len(clarifications.contextErrs) != 1 || clarifications.contextErrs[0] != nil {
+		t.Fatalf("clarification cleanup context errors = %v, want one nil error after a late commit", clarifications.contextErrs)
+	}
+	if !sessionCancelledEventPublished(eventBus, "session-late-effects") {
+		t.Fatal("expected cancellation event after the delayed write committed")
 	}
 }
 
