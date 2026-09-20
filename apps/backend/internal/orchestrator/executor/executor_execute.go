@@ -1668,7 +1668,7 @@ func (e *Executor) LaunchPreparedSession(ctx context.Context, task *v1.Task, ses
 		return nil, fmt.Errorf("check runtime inventory for session %q: %w", sessionID, hasRunningErr)
 	}
 	if hasRunning {
-		result, existingErr := e.startAgentOnExistingWorkspaceWithRequest(launchCtx, task, session, prompt, startAgent, opts.McpMode, req, opts.TurnID)
+		result, existingErr := e.startAgentOnExistingWorkspaceWithRequest(launchCtx, task, session, prompt, startAgent, opts.McpMode, req, opts.OnExecutionAdmitted, opts.TurnID)
 		if !errors.Is(existingErr, ErrStaleExecution) && !errors.Is(existingErr, ErrAgentCommandMissing) {
 			if releaseErr := releaseSelectedWorktreeRecovery(ctx, &recoveryAdmission); releaseErr != nil {
 				return nil, errors.Join(existingErr, fmt.Errorf("release worktree recovery admission: %w", releaseErr))
@@ -1705,6 +1705,9 @@ func (e *Executor) LaunchPreparedSession(ctx context.Context, task *v1.Task, ses
 		e.markTaskEnvironmentMaterializationFailed(launchCtx, existingEnv, session.ID)
 		repositoryID, taskRepositoryID := failingLaunchRepositoryIdentity(req, err)
 		return nil, e.handleLaunchFailure(launchCtx, task.ID, sessionID, repositoryID, taskRepositoryID, err)
+	}
+	if startAgent && opts.OnExecutionAdmitted != nil {
+		opts.OnExecutionAdmitted(resp.AgentExecutionID)
 	}
 
 	// Capture the current HEAD commit as the base commit for this session asynchronously.
@@ -2193,9 +2196,11 @@ func buildRepoSpecs(allRepos []*repoInfo) []RepoSpec {
 			RepositoryID:               info.RepositoryID,
 			RepositoryPath:             info.RepositoryPath,
 			BaseBranch:                 info.BaseBranch,
+			IntegrationRef:             info.IntegrationRef,
 			CheckoutBranch:             info.CheckoutBranch,
 			PRNumber:                   info.PRNumber,
 			RemoteContribution:         info.RemoteContribution,
+			CheckoutOptions:            info.CheckoutOptions,
 			ContributionDestination:    info.ContributionDestination,
 			ComparisonTarget:           info.ComparisonTarget,
 			WorktreeBranchPrefix:       info.WorktreeBranchPrefix,
@@ -2266,9 +2271,11 @@ func (e *Executor) applyRepositoryConfig(req *LaunchAgentRequest, task *v1.Task,
 		req.TaskRepositoryID = repoInfo.TaskRepositoryID
 		req.RepositoryPath = repoInfo.RepositoryPath
 		req.BaseBranch = repoInfo.BaseBranch
+		req.IntegrationRef = repoInfo.IntegrationRef
 		req.CheckoutBranch = repoInfo.CheckoutBranch
 		req.PRNumber = repoInfo.PRNumber
 		req.RemoteContribution = repoInfo.RemoteContribution
+		req.CheckoutOptions = repoInfo.CheckoutOptions
 		req.ContributionDestination = repoInfo.ContributionDestination
 		req.ComparisonTarget = repoInfo.ComparisonTarget
 		req.WorktreeBranchPrefix = repoInfo.WorktreeBranchPrefix
@@ -2362,7 +2369,7 @@ func (e *Executor) startAgentOnExistingWorkspace(ctx context.Context, task *v1.T
 		SessionID:   session.ID,
 		Env:         cloneStringMap(env),
 	}
-	return e.startAgentOnExistingWorkspaceWithRequest(ctx, task, session, prompt, startAgent, mcpMode, request, turnIDs...)
+	return e.startAgentOnExistingWorkspaceWithRequest(ctx, task, session, prompt, startAgent, mcpMode, request, nil, turnIDs...)
 }
 
 func (e *Executor) startAgentOnExistingWorkspaceWithRequest(
@@ -2373,6 +2380,7 @@ func (e *Executor) startAgentOnExistingWorkspaceWithRequest(
 	startAgent bool,
 	mcpMode string,
 	request *LaunchAgentRequest,
+	onExecutionAdmitted func(string),
 	turnIDs ...string,
 ) (*TaskExecution, error) {
 	executionID, err := e.agentManager.GetExecutionIDForSession(ctx, session.ID)
@@ -2446,6 +2454,9 @@ func (e *Executor) startAgentOnExistingWorkspaceWithRequest(
 		SessionState:     v1.TaskSessionStateStarting,
 		LastUpdate:       now,
 		SessionID:        session.ID,
+	}
+	if onExecutionAdmitted != nil {
+		onExecutionAdmitted(executionID)
 	}
 
 	// Start the agent process asynchronously
@@ -3020,10 +3031,13 @@ func environmentReposForLaunch(req *LaunchAgentRequest, resp *LaunchAgentRespons
 		branchSlug = topLevelBranchIdentitySlug(req)
 	}
 	worktreeID, worktreePath, worktreeBranch := "", "", ""
+	worktreeBranchOwner, worktreeIntegrationRef := "", ""
 	if resp.WorktreeID != "" {
 		worktreeID = resp.WorktreeID
 		worktreePath = resp.WorktreePath
 		worktreeBranch = resp.WorktreeBranch
+		worktreeBranchOwner = resp.WorktreeBranchOwner
+		worktreeIntegrationRef = resp.WorktreeIntegrationRef
 	}
 	return []*models.TaskEnvironmentRepo{{
 		RepositoryID: req.RepositoryID,
@@ -3032,10 +3046,12 @@ func environmentReposForLaunch(req *LaunchAgentRequest, resp *LaunchAgentRespons
 		// for reuse validation. It is not a physical worktree, so do not copy
 		// the environment-level workspace path (which may be the host's seed
 		// checkout) into the physical-worktree fields.
-		WorktreeID:     worktreeID,
-		WorktreePath:   worktreePath,
-		WorktreeBranch: worktreeBranch,
-		Position:       0,
+		WorktreeID:             worktreeID,
+		WorktreePath:           worktreePath,
+		WorktreeBranch:         worktreeBranch,
+		WorktreeBranchOwner:    worktreeBranchOwner,
+		WorktreeIntegrationRef: worktreeIntegrationRef,
+		Position:               0,
 	}}
 }
 
@@ -3045,13 +3061,15 @@ func buildTaskEnvironmentRepos(worktrees []RepoWorktreeResult) []*models.TaskEnv
 	out := make([]*models.TaskEnvironmentRepo, 0, len(worktrees))
 	for i, w := range worktrees {
 		out = append(out, &models.TaskEnvironmentRepo{
-			RepositoryID:   w.RepositoryID,
-			BranchSlug:     w.BranchSlug,
-			WorktreeID:     w.WorktreeID,
-			WorktreePath:   w.WorktreePath,
-			WorktreeBranch: w.WorktreeBranch,
-			Position:       i,
-			ErrorMessage:   w.ErrorMessage,
+			RepositoryID:           w.RepositoryID,
+			BranchSlug:             w.BranchSlug,
+			WorktreeID:             w.WorktreeID,
+			WorktreePath:           w.WorktreePath,
+			WorktreeBranch:         w.WorktreeBranch,
+			WorktreeBranchOwner:    w.WorktreeBranchOwner,
+			WorktreeIntegrationRef: w.WorktreeIntegrationRef,
+			Position:               i,
+			ErrorMessage:           w.ErrorMessage,
 		})
 	}
 	return out
@@ -3133,14 +3151,16 @@ func (e *Executor) persistOneTaskEnvironmentRepoTransition(
 		return e.refreshTaskEnvironmentRepo(ctx, row, w, position, replacePhysical)
 	}
 	row = &models.TaskEnvironmentRepo{
-		TaskEnvironmentID: envID,
-		RepositoryID:      w.RepositoryID,
-		BranchSlug:        w.BranchSlug,
-		WorktreeID:        w.WorktreeID,
-		WorktreePath:      w.WorktreePath,
-		WorktreeBranch:    w.WorktreeBranch,
-		Position:          position,
-		ErrorMessage:      w.ErrorMessage,
+		TaskEnvironmentID:      envID,
+		RepositoryID:           w.RepositoryID,
+		BranchSlug:             w.BranchSlug,
+		WorktreeID:             w.WorktreeID,
+		WorktreePath:           w.WorktreePath,
+		WorktreeBranch:         w.WorktreeBranch,
+		WorktreeBranchOwner:    w.WorktreeBranchOwner,
+		WorktreeIntegrationRef: w.WorktreeIntegrationRef,
+		Position:               position,
+		ErrorMessage:           w.ErrorMessage,
 	}
 	if createErr := e.repo.CreateTaskEnvironmentRepo(ctx, row); createErr != nil {
 		e.logger.Warn("failed to persist task environment repo",
@@ -3187,6 +3207,12 @@ func (e *Executor) refreshTaskEnvironmentRepo(ctx context.Context, row, w *model
 		row.WorktreePath = w.WorktreePath
 		row.WorktreeBranch = w.WorktreeBranch
 	}
+	if w.WorktreeBranchOwner != "" || w.WorktreeID == "" {
+		row.WorktreeBranchOwner = w.WorktreeBranchOwner
+	}
+	if w.WorktreeIntegrationRef != "" || w.WorktreeID == "" || replacePhysical {
+		row.WorktreeIntegrationRef = w.WorktreeIntegrationRef
+	}
 	row.Position = position
 	row.ErrorMessage = w.ErrorMessage
 	if replacePhysical {
@@ -3195,6 +3221,8 @@ func (e *Executor) refreshTaskEnvironmentRepo(ctx context.Context, row, w *model
 		// canonical inventory does not remain permanently excluded from reuse.
 		row.Status = taskEnvironmentRepoStatusActive
 		row.DeletedAt = nil
+		row.WorktreeRecoveryHeadSHA = ""
+		row.WorktreeBranchCompactedAt = nil
 	}
 	if err := e.repo.UpdateTaskEnvironmentRepo(ctx, row); err != nil {
 		e.logger.Warn("failed to update task environment repo",
@@ -3213,6 +3241,8 @@ func taskEnvironmentRepoNeedsRefresh(row, w *models.TaskEnvironmentRepo, positio
 			(row.WorktreeID != w.WorktreeID ||
 				row.WorktreePath != w.WorktreePath ||
 				row.WorktreeBranch != w.WorktreeBranch)) ||
+		(w.WorktreeBranchOwner != "" && row.WorktreeBranchOwner != w.WorktreeBranchOwner) ||
+		((w.WorktreeIntegrationRef != "" || replacePhysical) && row.WorktreeIntegrationRef != w.WorktreeIntegrationRef) ||
 		row.Position != position ||
 		row.ErrorMessage != w.ErrorMessage
 }
