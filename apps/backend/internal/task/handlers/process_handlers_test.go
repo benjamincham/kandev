@@ -476,6 +476,9 @@ func (m *mockRepository) CancelActiveTaskSessionsByTaskID(ctx context.Context, t
 func (m *mockRepository) CancelActiveTaskSessionsByIDs(ctx context.Context, taskID string, sessionIDs []string, reason string) ([]*models.TaskSession, error) {
 	return nil, nil
 }
+func (m *mockRepository) CancelActiveTaskSessionsByCandidates(ctx context.Context, taskID string, candidates []models.ActiveSessionCancellationCandidate, reason string) ([]*models.TaskSession, error) {
+	return nil, nil
+}
 func (m *mockRepository) HasActiveTaskSessionsByAgentProfile(ctx context.Context, agentProfileID string) (bool, error) {
 	return false, nil
 }

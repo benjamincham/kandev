@@ -9,6 +9,7 @@ import (
 	"github.com/kandev/kandev/internal/events"
 	"github.com/kandev/kandev/internal/events/bus"
 	"github.com/kandev/kandev/internal/task/models"
+	sqliterepo "github.com/kandev/kandev/internal/task/repository/sqlite"
 )
 
 // stubExecutionRegistry is the test double for SessionExecutionRegistry: it
@@ -45,6 +46,7 @@ type sweepFixture struct {
 	}
 	registry *stubExecutionRegistry
 	now      time.Time
+	rawRepo  *sqliterepo.Repository
 }
 
 // newSweepFixture creates a task holding one RUNNING session whose row went
@@ -82,6 +84,7 @@ func newSweepFixture(t *testing.T, silence time.Duration) *sweepFixture {
 		repo:     repo,
 		registry: registry,
 		now:      now,
+		rawRepo:  repo,
 	}
 }
 
@@ -457,5 +460,75 @@ func TestService_ActiveSessionSweepStallPayloadTimesNewlyReportedOnly(t *testing
 	// session-1's 3h1m.
 	if got := data["stalled_for"]; got != (6*time.Hour + time.Minute).String() {
 		t.Errorf("stalled_for = %v, want %s (the newly reported session's silence)", got, (6*time.Hour + time.Minute).String())
+	}
+}
+
+func TestService_ActiveSessionSweepPrunesRemovedTaskNotifications(t *testing.T) {
+	fixture := newSweepFixture(t, 30*time.Minute)
+	fixture.svc.stallNotifiedSessions = map[string]map[string]struct{}{
+		"task-1":    {"session-1": {}},
+		"task-gone": {"session-gone": {}},
+	}
+
+	fixture.svc.pruneStallNotificationsToCandidates([]*models.Task{{ID: "task-1"}})
+
+	if _, ok := fixture.svc.stallNotifiedSessions["task-gone"]; ok {
+		t.Fatal("stale notification entry for a removed task was retained")
+	}
+	if _, ok := fixture.svc.stallNotifiedSessions["task-1"]; !ok {
+		t.Fatal("notification entry for a current task was pruned")
+	}
+}
+
+func TestService_ActiveSessionSweepClosesOrphanTurnWithoutCompletionEvent(t *testing.T) {
+	fixture := newSweepFixture(t, 5*time.Hour)
+	ctx := context.Background()
+	turn, err := fixture.svc.StartTurn(ctx, "session-1")
+	if err != nil {
+		t.Fatalf("StartTurn: %v", err)
+	}
+	old := fixture.now.Add(-5 * time.Hour)
+	if err := fixture.svc.messages.CreateMessage(ctx, &models.Message{
+		ID:            "pending-tool-message",
+		TaskSessionID: "session-1",
+		TaskID:        "task-1",
+		TurnID:        turn.ID,
+		AuthorType:    models.MessageAuthorAgent,
+		Type:          models.MessageTypeToolExecute,
+		Content:       "tool output",
+		Metadata:      map[string]interface{}{"tool_call_id": "call-1", "status": "pending"},
+		CreatedAt:     old,
+		UpdatedAt:     old,
+	}); err != nil {
+		t.Fatalf("CreateMessage: %v", err)
+	}
+	if _, err := fixture.rawRepo.DB().ExecContext(ctx,
+		`UPDATE task_sessions SET updated_at = ? WHERE id = ?`, old, "session-1"); err != nil {
+		t.Fatalf("age session row: %v", err)
+	}
+
+	fixture.svc.runActiveSessionSweep(ctx, fixture.now)
+
+	storedTurn, err := fixture.svc.turns.GetTurn(ctx, turn.ID)
+	if err != nil {
+		t.Fatalf("GetTurn: %v", err)
+	}
+	if storedTurn.CompletedAt == nil || !storedTurn.CompletedAt.Equal(storedTurn.StartedAt) {
+		t.Fatalf("orphan turn completion = %v, want zero-duration completion at %v", storedTurn.CompletedAt, storedTurn.StartedAt)
+	}
+	message, err := fixture.svc.messages.GetMessage(ctx, "pending-tool-message")
+	if err != nil {
+		t.Fatalf("GetMessage: %v", err)
+	}
+	if got := message.Metadata["status"]; got != "complete" {
+		t.Fatalf("pending tool status = %v, want complete", got)
+	}
+	for _, event := range fixture.eventBus.GetPublishedEvents() {
+		if event.Type != events.TurnCompleted {
+			continue
+		}
+		if data, ok := event.Data.(map[string]interface{}); ok && data["id"] == turn.ID {
+			t.Fatal("system orphan cleanup published turn.completed and may advance workflow")
+		}
 	}
 }

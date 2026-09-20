@@ -478,6 +478,11 @@ type SessionRepository interface {
 	// registration of new live work cannot be cancelled by a bulk
 	// task-scoped write. Same RETURNING contract as the task-scoped method.
 	CancelActiveTaskSessionsByIDs(ctx context.Context, taskID string, sessionIDs []string, reason string) ([]*models.TaskSession, error)
+	// ActiveSessionCancellationCandidate captures the activity and current-turn
+	// identity observed by a reconciliation pass. Implementations must cancel a
+	// candidate only when the session row, message activity clock, and active
+	// turn still match this snapshot at the write boundary.
+	CancelActiveTaskSessionsByCandidates(ctx context.Context, taskID string, candidates []models.ActiveSessionCancellationCandidate, reason string) ([]*models.TaskSession, error)
 	HasActiveTaskSessionsByAgentProfile(ctx context.Context, agentProfileID string) (bool, error)
 	GetActiveTaskInfoByAgentProfile(ctx context.Context, agentProfileID string) ([]agentdto.ActiveTaskInfo, error)
 	HasActiveTaskSessionsByExecutor(ctx context.Context, executorID string) (bool, error)

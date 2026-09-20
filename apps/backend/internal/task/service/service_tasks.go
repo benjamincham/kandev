@@ -2649,6 +2649,116 @@ func (s *Service) cancelActiveTaskSessionsWithRetry(
 	return nil, cancelErr
 }
 
+func (s *Service) cancelActiveTaskSessionsByCandidatesWithRetry(
+	ctx context.Context,
+	taskID, reason string,
+	candidates []models.ActiveSessionCancellationCandidate,
+) ([]*models.TaskSession, error) {
+	const cancelRetryBackoff = 250 * time.Millisecond
+
+	var cancelledSessions []*models.TaskSession
+	var cancelErr error
+	for attempt := 1; attempt <= maxCancelAttempts; attempt++ {
+		cancelledSessions, cancelErr = s.sessions.CancelActiveTaskSessionsByCandidates(
+			ctx, taskID, candidates, reason,
+		)
+		if cancelErr == nil {
+			return cancelledSessions, nil
+		}
+		if attempt < maxCancelAttempts && !waitForCancellationRetry(ctx, cancelRetryBackoff) {
+			return nil, ctx.Err()
+		}
+	}
+	return nil, cancelErr
+}
+
+// finalizeCancelledSessionCandidates is the guarded cancellation path used
+// by active-session healing. It closes the exact orphan turn that was part of
+// the compare-and-set snapshot, and completes its pending tool calls without
+// publishing turn.completed. Automatic system cancellation must not enter the
+// normal turn/workflow completion path.
+func (s *Service) finalizeCancelledSessionCandidates(
+	ctx context.Context,
+	taskID string,
+	activeSessions []*models.TaskSession,
+	candidates []models.ActiveSessionCancellationCandidate,
+	deadline time.Time,
+	reason string,
+) {
+	cancelledSessions, cancelErr := s.cancelActiveTaskSessionsByCandidatesWithRetry(
+		ctx, taskID, reason, candidates,
+	)
+	if cancelErr != nil {
+		s.logger.Error("failed to reap guarded active sessions after retries",
+			zap.String("task_id", taskID),
+			zap.Int("attempts", maxCancelAttempts),
+			zap.Error(cancelErr))
+		return
+	}
+	if len(cancelledSessions) == 0 {
+		return
+	}
+	s.abandonCancelledSessionTurns(ctx, candidates, cancelledSessions)
+	s.logger.Info("reaped guarded active sessions",
+		zap.String("task_id", taskID),
+		zap.Int("count", len(cancelledSessions)))
+	s.runCancelledSessionEffects(ctx, taskID, activeSessions, cancelledSessions, deadline, reason)
+}
+
+func (s *Service) abandonCancelledSessionTurns(
+	ctx context.Context,
+	candidates []models.ActiveSessionCancellationCandidate,
+	cancelledSessions []*models.TaskSession,
+) {
+	turnIDs := make(map[string]string, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.SessionID != "" && candidate.ExpectedTurnID != "" {
+			turnIDs[candidate.SessionID] = candidate.ExpectedTurnID
+		}
+	}
+	for _, session := range cancelledSessions {
+		if session == nil {
+			continue
+		}
+		turnID := turnIDs[session.ID]
+		if turnID == "" {
+			continue
+		}
+		activeTurn, err := s.GetActiveTurn(ctx, session.ID)
+		if err != nil {
+			s.logger.Warn("failed to inspect orphan turn after session cancellation",
+				zap.String("session_id", session.ID),
+				zap.String("turn_id", turnID),
+				zap.Error(err))
+			continue
+		}
+		if activeTurn == nil || activeTurn.ID != turnID {
+			// A different turn owns the session now. Never abandon it using a
+			// stale session-only lookup; the next reconciliation pass can
+			// inspect the new identity.
+			continue
+		}
+		if err := s.turns.AbandonTurn(ctx, turnID); err != nil {
+			s.logger.Warn("failed to abandon orphan turn after session cancellation",
+				zap.String("session_id", session.ID),
+				zap.String("turn_id", turnID),
+				zap.Error(err))
+			continue
+		}
+		if affected, err := s.turns.CompletePendingToolCallsForTurn(ctx, turnID); err != nil {
+			s.logger.Warn("failed to complete pending tool calls for cancelled session turn",
+				zap.String("session_id", session.ID),
+				zap.String("turn_id", turnID),
+				zap.Error(err))
+		} else if affected > 0 {
+			s.logger.Info("completed pending tool calls for cancelled session turn",
+				zap.String("session_id", session.ID),
+				zap.String("turn_id", turnID),
+				zap.Int64("affected", affected))
+		}
+	}
+}
+
 // finalizeCancelledSessions finalizes an archived task's active sessions in
 // the DB and publishes a session.state_changed event for each one actually
 // cancelled. The async cleanup that follows tears down the agent processes;
@@ -2688,10 +2798,8 @@ func (s *Service) finalizeCancelledSessions(
 // finalizeCancelledSessionIDs is finalizeCancelledSessions with an optional
 // session-ID scope: when sessionIDs is non-empty only those sessions are
 // cancelled (a nil/empty scope means every active session of the task, the
-// archive semantics). The ID scope lets the session reconciliation sweep's
-// heal path cancel exactly the sessions it classified as orphaned, so an
-// execution that registered after classification is outside the write's
-// predicate and survives.
+// archive semantics). Callers that need activity and turn compare-and-set
+// protection use finalizeCancelledSessionCandidates instead.
 func (s *Service) finalizeCancelledSessionIDs(
 	ctx context.Context,
 	taskID string,

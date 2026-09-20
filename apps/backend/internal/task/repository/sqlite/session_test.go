@@ -2240,6 +2240,52 @@ func TestCancelActiveTaskSessionsByIDs(t *testing.T) {
 	}
 }
 
+func TestCancelActiveTaskSessionsByCandidatesRejectsNewActivityAndTurn(t *testing.T) {
+	repo := newRepoForSessionTests(t)
+	ctx := context.Background()
+	seedRepoLink(t, repo, "ws-candidate", "repo-candidate", "task-candidate", "session-candidate", "RUNNING")
+
+	turn := &models.Turn{
+		ID:            "turn-candidate",
+		TaskSessionID: "session-candidate",
+		TaskID:        "task-candidate",
+	}
+	if err := repo.CreateTurn(ctx, turn); err != nil {
+		t.Fatalf("CreateTurn: %v", err)
+	}
+	session, err := repo.GetTaskSession(ctx, "session-candidate")
+	if err != nil {
+		t.Fatalf("GetTaskSession after turn: %v", err)
+	}
+	candidate := models.ActiveSessionCancellationCandidate{
+		SessionID:           session.ID,
+		ExpectedUpdatedAt:   session.UpdatedAt,
+		ExpectedLastEventAt: session.UpdatedAt,
+		ExpectedTurnID:      turn.ID,
+	}
+
+	// A successor turn refreshes the session activity clock and changes the
+	// current-turn identity. The old candidate must lose the write race.
+	newTurn := &models.Turn{
+		ID:            "turn-candidate-successor",
+		TaskSessionID: "session-candidate",
+		TaskID:        "task-candidate",
+	}
+	if err := repo.CreateTurn(ctx, newTurn); err != nil {
+		t.Fatalf("Create successor turn: %v", err)
+	}
+	cancelled, err := repo.CancelActiveTaskSessionsByCandidates(ctx, "task-candidate", []models.ActiveSessionCancellationCandidate{candidate}, "orphaned session")
+	if err != nil {
+		t.Fatalf("guarded cancellation: %v", err)
+	}
+	if len(cancelled) != 0 {
+		t.Fatalf("cancelled sessions = %v, want none after successor turn", cancelled)
+	}
+	if got := sessionState(t, repo, "session-candidate"); got != "RUNNING" {
+		t.Fatalf("session state = %q, want RUNNING", got)
+	}
+}
+
 // sameStringSet reports whether got and want contain the same strings,
 // ignoring order and duplicates count-for-count — used to compare the set of
 // cancelled session IDs against an expected set regardless of return order.
@@ -2388,6 +2434,53 @@ func TestCreateTurnRefreshesSessionUpdatedAt(t *testing.T) {
 	}
 	if !session.UpdatedAt.After(oldRowTime.Add(time.Hour)) {
 		t.Errorf("updated_at = %v after CreateTurnWithStepStamp, want refreshed well past the aged %v", session.UpdatedAt, oldRowTime)
+	}
+}
+
+func TestCreateTurnRollsBackWhenSessionActivityRefreshFails(t *testing.T) {
+	repo := newRepoForSessionTests(t)
+	ctx := context.Background()
+	seedSessionForTurns(t, repo, "task-turn-atomic", "session-turn-atomic")
+	oldRowTime := time.Now().UTC().Add(-3 * time.Hour)
+	if _, err := repo.DB().ExecContext(ctx,
+		`UPDATE task_sessions SET updated_at = ? WHERE id = ?`, oldRowTime, "session-turn-atomic"); err != nil {
+		t.Fatalf("age session row: %v", err)
+	}
+	if _, err := repo.DB().ExecContext(ctx, `
+		CREATE TRIGGER fail_turn_session_clock
+		BEFORE UPDATE OF updated_at ON task_sessions
+		WHEN OLD.id = 'session-turn-atomic'
+		BEGIN
+			SELECT RAISE(ABORT, 'session activity refresh rejected');
+		END;
+	`); err != nil {
+		t.Fatalf("create failure trigger: %v", err)
+	}
+
+	err := repo.CreateTurn(ctx, &models.Turn{
+		ID:            "turn-atomic",
+		TaskSessionID: "session-turn-atomic",
+		TaskID:        "task-turn-atomic",
+	})
+	if err == nil {
+		t.Fatal("CreateTurn succeeded despite a failed session activity refresh")
+	}
+
+	var turnCount int
+	if err := repo.DB().QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM task_session_turns WHERE id = ?`, "turn-atomic").Scan(&turnCount); err != nil {
+		t.Fatalf("count inserted turn: %v", err)
+	}
+	if turnCount != 0 {
+		t.Fatalf("turn row count = %d after failed session refresh, want 0", turnCount)
+	}
+	var gotSessionTime time.Time
+	if err := repo.DB().QueryRowContext(ctx,
+		`SELECT updated_at FROM task_sessions WHERE id = ?`, "session-turn-atomic").Scan(&gotSessionTime); err != nil {
+		t.Fatalf("read session clock: %v", err)
+	}
+	if !gotSessionTime.Equal(oldRowTime) {
+		t.Fatalf("session updated_at = %v after rollback, want %v", gotSessionTime, oldRowTime)
 	}
 }
 

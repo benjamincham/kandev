@@ -70,6 +70,7 @@ func (s *Service) runActiveSessionSweep(ctx context.Context, now time.Time) {
 		s.clearAllStallNotifications()
 		return
 	}
+	s.pruneStallNotificationsToCandidates(tasks)
 
 	threshold := s.stallThreshold()
 	grace := threshold * stallHealGraceMultiplier
@@ -128,7 +129,7 @@ func (s *Service) sweepTaskSessions(
 		return
 	}
 	s.notifyStalledSessions(ctx, task, stalled, lastEventBySession, now, threshold)
-	s.healOrphanedSessions(ctx, task, activeSessions, orphaned, healable)
+	s.healOrphanedSessions(ctx, task, activeSessions, orphaned, healable, lastEventBySession)
 }
 
 // classifyOrphanedSessions splits execution-less sessions into stalled
@@ -278,11 +279,10 @@ func (s *Service) notifyStalledSessions(
 // the session stop. Repeat passes are no-ops: the underlying UPDATE only
 // matches rows still in an active state.
 //
-// The cancellation is task-scoped, so healing only runs when every active
-// session of the task is execution-less and past the grace window. A task
-// that still has any live or merely-stalled session keeps its rows: killing
-// live work because a sibling session died is never the sweep's call, and a
-// later pass heals once the remaining sessions go quiet too.
+// Healing is task-scoped at the eligibility boundary, so it only runs when
+// every active session of the task is execution-less and past the grace
+// window. The write itself is candidate-scoped, so a same-session resume or a
+// newer turn cannot be cancelled by a stale sweep snapshot.
 //
 // The guard is re-evaluated at the cancellation boundary itself: the
 // liveness snapshot was taken before the silence reads, and an execution
@@ -297,6 +297,7 @@ func (s *Service) healOrphanedSessions(
 	ctx context.Context,
 	task *models.Task,
 	activeSessions, orphaned, healable []*models.TaskSession,
+	lastEventBySession map[string]time.Time,
 ) {
 	if len(healable) == 0 || len(orphaned) != len(activeSessions) || len(healable) != len(orphaned) {
 		return
@@ -307,21 +308,70 @@ func (s *Service) healOrphanedSessions(
 			zap.Int("live_sessions", len(live)))
 		return
 	}
-	sessionIDs := make([]string, 0, len(healable))
+	candidates := make([]models.ActiveSessionCancellationCandidate, 0, len(healable))
 	for _, session := range healable {
-		sessionIDs = append(sessionIDs, session.ID)
+		turn, err := s.GetActiveTurn(ctx, session.ID)
+		if err != nil {
+			s.logger.Warn("active-session sweep: failed to inspect current turn; skipping heal",
+				zap.String("task_id", task.ID),
+				zap.String("session_id", session.ID),
+				zap.Error(err))
+			return
+		}
+		lastEvent := lastEventBySession[session.ID]
+		if lastEvent.IsZero() {
+			lastEvent = session.UpdatedAt
+		}
+		candidate := models.ActiveSessionCancellationCandidate{
+			SessionID:           session.ID,
+			ExpectedUpdatedAt:   session.UpdatedAt,
+			ExpectedLastEventAt: lastEvent,
+		}
+		if turn != nil {
+			candidate.ExpectedTurnID = turn.ID
+		}
+		candidates = append(candidates, candidate)
 	}
 	s.logger.Info("active-session sweep: healing orphaned sessions",
 		zap.String("task_id", task.ID),
-		zap.Strings("session_ids", sessionIDs))
+		zap.Strings("session_ids", cancellationCandidateIDs(candidates)))
 	deadline := archivecascade.ArchiveDeadline(ctx)
 	healCtx, cancel := archivecascade.ContinuationContextUntil(ctx, deadline)
 	defer cancel()
-	// sessionIDs scopes the cancellation to exactly the sessions this pass
-	// classified as orphaned; combined with the liveness re-check above, a
-	// session that started or re-registered between classification and this
-	// write is outside the predicate and survives.
-	s.finalizeCancelledSessionIDs(healCtx, task.ID, activeSessions, sessionIDs, deadline, models.SessionOrphanedCancelReason)
+	// Candidates scope the cancellation to exactly the sessions this pass
+	// classified as orphaned and compare their activity/turn identity in the
+	// UPDATE. A same-session resume or successor turn therefore survives the
+	// write and is retried by the next sweep.
+	s.finalizeCancelledSessionCandidates(
+		healCtx, task.ID, activeSessions, candidates, deadline, models.SessionOrphanedCancelReason,
+	)
+}
+
+func cancellationCandidateIDs(candidates []models.ActiveSessionCancellationCandidate) []string {
+	ids := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		ids = append(ids, candidate.SessionID)
+	}
+	return ids
+}
+
+// pruneStallNotificationsToCandidates removes stale task entries while the
+// candidate query is healthy. A task that disappears from the query can no
+// longer have an active stall episode, so retaining its entry leaks memory and
+// suppresses a future episode if the task later becomes active again. Query
+// failures return before this helper and therefore preserve the prior map.
+func (s *Service) pruneStallNotificationsToCandidates(tasks []*models.Task) {
+	candidateIDs := make(map[string]struct{}, len(tasks))
+	for _, task := range tasks {
+		if task != nil && task.ID != "" {
+			candidateIDs[task.ID] = struct{}{}
+		}
+	}
+	for taskID := range s.stallNotifiedSessions {
+		if _, present := candidateIDs[taskID]; !present {
+			delete(s.stallNotifiedSessions, taskID)
+		}
+	}
 }
 
 // pruneStallEpisode maintains the per-session episode set for one task:
