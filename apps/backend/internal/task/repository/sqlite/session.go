@@ -2156,14 +2156,14 @@ func (r *Repository) CancelActiveTaskSessionsByTaskID(ctx context.Context, taskI
 // widening the interface would force every test double in the tree to grow
 // methods this sweep never exercises through them.
 func (r *Repository) ListStaleRunningSessionsOnUnarchivedTasks(ctx context.Context, staleBefore time.Time) ([]*models.TaskSession, error) {
-	rows, err := r.ro.QueryContext(ctx, `
+	rows, err := r.ro.QueryContext(ctx, r.ro.Rebind(`
 		SELECT `+taskSessionSelectCols+` `+taskSessionFromClause+`
 		JOIN tasks t ON t.id = ts.task_id
 		WHERE ts.state IN ('STARTING', 'RUNNING')
 			AND ts.updated_at < ?
 			AND t.archived_at IS NULL
 		ORDER BY ts.updated_at ASC
-	`, staleBefore)
+	`), staleBefore)
 	if err != nil {
 		return nil, err
 	}
