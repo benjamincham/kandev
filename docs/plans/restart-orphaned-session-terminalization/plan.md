@@ -58,13 +58,17 @@ doubles.
 
 - `TestService_OrphanedSessionReconciliationTerminalizesUnbackedSessions`
   (`apps/backend/internal/task/service/orphaned_session_reconciliation_test.go`):
-  covers AC-TASKS-RESTART-ORPHAN-SESSIONS-001.1, .2, .3, .4, .5, and .8 —
+  covers AC-TASKS-RESTART-ORPHAN-SESSIONS-001.1, .2, .3, .4, .5, .8, and .10 —
   stale unbacked `RUNNING`/`STARTING` sessions reach `CANCELLED` with the
-  orphan reason and a `session.state_changed` publish; live-backed, fresh,
-  archived-task, and `WAITING_FOR_INPUT` sibling rows stay untouched.
+  orphan reason and a `session.state_changed` publish whose `is_primary`
+  matches the durable flag; live-backed, fresh, archived-task, and
+  `WAITING_FOR_INPUT` sibling rows stay untouched.
 - `TestService_OrphanedSessionReconciliationRequiresLivenessChecker`: covers
   AC-TASKS-RESTART-ORPHAN-SESSIONS-001.6 — without the liveness seam the sweep
   is inert.
+- `TestService_OrphanedSessionReconciliationSparesRowRefreshedSinceCandidateRead`:
+  covers AC-TASKS-RESTART-ORPHAN-SESSIONS-001.9 — a row refreshed between the
+  candidate read and the cancel write (the in-flight-launch race) is spared.
 - `TestSessionOrphanedCancelReasonIsNotArchiveReason`: covers
   AC-TASKS-RESTART-ORPHAN-SESSIONS-001.4's distinctness invariant.
 

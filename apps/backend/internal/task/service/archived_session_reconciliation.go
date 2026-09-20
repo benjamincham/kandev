@@ -108,7 +108,7 @@ func orphanedSessionGracePeriod() time.Duration {
 // repository is the only production implementer.
 type orphanedSessionRepository interface {
 	ListStaleRunningSessionsOnUnarchivedTasks(ctx context.Context, staleBefore time.Time) ([]*models.TaskSession, error)
-	CancelRunningTaskSessionByID(ctx context.Context, sessionID, reason string) (*models.TaskSession, error)
+	CancelRunningTaskSessionByID(ctx context.Context, sessionID, reason string, staleBefore time.Time) (*models.TaskSession, error)
 }
 
 // runOrphanedSessionReconciliation is pass 2 of the reconciliation loop: it
@@ -140,10 +140,10 @@ func (s *Service) runOrphanedSessionReconciliation(ctx context.Context) {
 	if len(candidates) == 0 {
 		return
 	}
-	s.reconcileOrphanedSessions(ctx, candidates)
+	s.reconcileOrphanedSessions(ctx, candidates, staleBefore)
 }
 
-func (s *Service) reconcileOrphanedSessions(ctx context.Context, candidates []*models.TaskSession) {
+func (s *Service) reconcileOrphanedSessions(ctx context.Context, candidates []*models.TaskSession, staleBefore time.Time) {
 	repo, ok := s.sessions.(orphanedSessionRepository)
 	if !ok {
 		return
@@ -157,11 +157,14 @@ func (s *Service) reconcileOrphanedSessions(ctx context.Context, candidates []*m
 		}
 		// Re-check liveness at the moment of the write, not just at the
 		// candidate read: a launch that raced the grace window since the read
-		// must not be reaped.
+		// must not be reaped. The staleBefore predicate inside the cancel
+		// UPDATE is the second half of that guard — it re-asserts the
+		// staleness cutoff so a row refreshed by an in-flight launch between
+		// this check and the write no longer matches.
 		if s.executionLivenessChecker.HasLiveExecution(session.ID) {
 			continue
 		}
-		cancelled, err := repo.CancelRunningTaskSessionByID(reconcileCtx, session.ID, models.SessionOrphanedCancelReason)
+		cancelled, err := repo.CancelRunningTaskSessionByID(reconcileCtx, session.ID, models.SessionOrphanedCancelReason, staleBefore)
 		if err != nil {
 			s.logger.Warn("orphaned-session reconciliation: failed to cancel session",
 				zap.String("session_id", session.ID),

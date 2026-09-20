@@ -63,6 +63,7 @@ func TestService_OrphanedSessionReconciliationTerminalizesUnbackedSessions(t *te
 	seedOrphanSweepTask(t, repo, "task-orphaned", false)
 	seedOrphanSweepTask(t, repo, "task-live-exec", false)
 	seedOrphanSweepTask(t, repo, "task-inflight-launch", false)
+	seedOrphanSweepTask(t, repo, "task-primary", false)
 	seedOrphanSweepTask(t, repo, "task-archived", true)
 
 	seedSession := func(id, taskID string, state models.TaskSessionState, updatedAt time.Time) {
@@ -91,6 +92,10 @@ func TestService_OrphanedSessionReconciliationTerminalizesUnbackedSessions(t *te
 	// Archived task with a stale RUNNING session: the archived pass owns it,
 	// the orphan pass must not touch it.
 	seedSession("session-archived-task", "task-archived", models.TaskSessionStateRunning, stale)
+	// Primary session on the orphaned task: the CANCELLED event must carry
+	// is_primary=true so the status-summary projection keeps the durable
+	// primary assignment.
+	seedSession("session-primary", "task-primary", models.TaskSessionStateRunning, stale)
 
 	svc.SetExecutionLivenessChecker(&fakeExecutionLiveness{
 		live: map[string]bool{"session-live-execution": true},
@@ -113,6 +118,7 @@ func TestService_OrphanedSessionReconciliationTerminalizesUnbackedSessions(t *te
 	assertState("session-live-execution", models.TaskSessionStateRunning)
 	assertState("session-inflight-launch", models.TaskSessionStateRunning)
 	assertState("session-archived-task", models.TaskSessionStateRunning)
+	assertState("session-primary", models.TaskSessionStateCancelled)
 
 	orphaned, err := repo.GetTaskSession(ctx, "session-orphaned-running")
 	if err != nil {
@@ -123,7 +129,17 @@ func TestService_OrphanedSessionReconciliationTerminalizesUnbackedSessions(t *te
 			orphaned.ErrorMessage, models.SessionOrphanedCancelReason)
 	}
 
-	for _, id := range []string{"session-orphaned-running", "session-orphaned-starting"} {
+	// The event must carry the durable is_primary flag: the primary session's
+	// cancellation reports is_primary=true rather than the zero value.
+	if data := sessionCancelledEvent(eventBus, "session-primary"); data != nil {
+		if isPrimary, ok := data["is_primary"].(bool); !ok || !isPrimary {
+			t.Errorf("primary session cancellation event is_primary = %v, want true", data["is_primary"])
+		}
+	} else {
+		t.Error("expected a cancellation event for session-primary")
+	}
+
+	for _, id := range []string{"session-orphaned-running", "session-orphaned-starting", "session-primary"} {
 		if !sessionCancelledEventPublished(eventBus, id) {
 			t.Errorf("expected a session.state_changed event for %s from the orphan sweep, got none", id)
 		}
@@ -146,6 +162,24 @@ func sessionCancelledEventPublished(eventBus *MockEventBus, sessionID string) bo
 		}
 	}
 	return false
+}
+
+// sessionCancelledEvent returns the last session.state_changed payload for
+// sessionID, or nil when none published. The orphan sweep's event must carry
+// the durable is_primary flag — the status-summary projector demotes the
+// session when a cancellation event reports is_primary: false.
+func sessionCancelledEvent(eventBus *MockEventBus, sessionID string) map[string]interface{} {
+	var found map[string]interface{}
+	for _, evt := range eventBus.GetPublishedEvents() {
+		if evt.Type != events.TaskSessionStateChanged {
+			continue
+		}
+		data, ok := evt.Data.(map[string]interface{})
+		if ok && data["session_id"] == sessionID && data["new_state"] == string(models.TaskSessionStateCancelled) {
+			found = data
+		}
+	}
+	return found
 }
 
 // TestService_OrphanedSessionReconciliationRequiresLivenessChecker pins the
@@ -175,6 +209,72 @@ func TestService_OrphanedSessionReconciliationRequiresLivenessChecker(t *testing
 	if session.State != models.TaskSessionStateRunning {
 		t.Fatalf("session state = %q, want RUNNING (sweep must stay inert without the liveness seam)", session.State)
 	}
+}
+
+// TestService_OrphanedSessionReconciliationSparesRowRefreshedSinceCandidateRead
+// pins the read-then-write guard: a launch CAS-writes its session to STARTING
+// (bumping updated_at) before it registers an execution in the in-memory
+// store, so the row can be refreshed between the sweep's candidate read and
+// its cancellation write. The cancel's staleBefore predicate must fail to
+// match that refreshed row instead of cancelling a launch in progress.
+func TestService_OrphanedSessionReconciliationSparesRowRefreshedSinceCandidateRead(t *testing.T) {
+	svc, eventBus, repo := createTestService(t)
+	ctx := context.Background()
+	seedOrphanSweepFixtures(t, repo)
+	seedOrphanSweepTask(t, repo, "task-relaunch", false)
+	if err := repo.CreateTaskSession(ctx, &models.TaskSession{
+		ID: "session-relaunch", TaskID: "task-relaunch", State: models.TaskSessionStateStarting,
+		AgentProfileID: "agent-1", IsPrimary: true,
+		UpdatedAt: time.Now().UTC().Add(-30 * time.Minute), StartedAt: time.Now().UTC().Add(-30 * time.Minute),
+	}); err != nil {
+		t.Fatalf("CreateTaskSession: %v", err)
+	}
+
+	// Simulate the race: the candidate read sees the stale row, then an
+	// in-flight launch refreshes it before the sweep's write lands.
+	intercept := &livenessInterceptChecker{delegate: &fakeExecutionLiveness{}}
+	svc.SetExecutionLivenessChecker(intercept)
+	intercept.onCheck = func(sessionID string) {
+		if sessionID != "session-relaunch" || intercept.refreshed {
+			return
+		}
+		intercept.refreshed = true
+		now := time.Now().UTC()
+		if _, err := repo.DB().ExecContext(ctx,
+			`UPDATE task_sessions SET state = ?, updated_at = ? WHERE id = ?`,
+			string(models.TaskSessionStateStarting), now, sessionID); err != nil {
+			t.Errorf("refresh session during liveness check: %v", err)
+		}
+	}
+
+	svc.runOrphanedSessionReconciliation(ctx)
+
+	session, err := repo.GetTaskSession(ctx, "session-relaunch")
+	if err != nil {
+		t.Fatalf("GetTaskSession: %v", err)
+	}
+	if session.State != models.TaskSessionStateStarting {
+		t.Fatalf("session state = %q, want STARTING (a row refreshed since the candidate read must not be reaped)", session.State)
+	}
+	if sessionCancelledEventPublished(eventBus, "session-relaunch") {
+		t.Error("unexpected session.state_changed event for the refreshed session")
+	}
+}
+
+// livenessInterceptChecker delegates to a fake liveness checker and lets a
+// test mutate the DB between the sweep's liveness check and its write,
+// reproducing the in-flight-launch race window.
+type livenessInterceptChecker struct {
+	delegate  *fakeExecutionLiveness
+	refreshed bool
+	onCheck   func(sessionID string)
+}
+
+func (l *livenessInterceptChecker) HasLiveExecution(sessionID string) bool {
+	if l.onCheck != nil {
+		l.onCheck(sessionID)
+	}
+	return l.delegate.HasLiveExecution(sessionID)
 }
 
 // TestSessionOrphanedCancelReasonIsNotArchiveReason pins the reason taxonomy:

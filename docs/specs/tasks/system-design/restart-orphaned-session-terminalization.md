@@ -59,11 +59,16 @@ pass that owns archived tasks' stranded sessions.
 - `staleBefore` is `now - (constants.AgentLaunchTimeout + 5m grace
   allowance)`: one full launch budget plus the start-deadline allowance, read
   (not copied) from `constants.AgentLaunchTimeout` so an operator-raised
-  preparation budget is honored.
-- `CancelRunningTaskSessionByID(sessionID, reason)` is an
-  `UPDATE ... RETURNING` over rows still in `STARTING`/`RUNNING`; it returns
-  `nil` when the session raced to another state, and the write detaches from
-  the caller context with a 10-second timeout.
+  preparation budget is honored. The same cutoff is passed into the cancel
+  statement and re-asserted as `updated_at < staleBefore` there, so a row
+  refreshed between the candidate read and the write no longer matches.
+- `CancelRunningTaskSessionByID(sessionID, reason, staleBefore)` is an
+  `UPDATE ... RETURNING` over rows still in `STARTING`/`RUNNING` whose
+  `updated_at` still predates the cutoff; it returns `nil` when the session
+  raced to another state or was refreshed, and the write detaches from the
+  caller context with a 10-second timeout. The RETURNING clause selects
+  `is_primary` alongside the other event-payload fields, so the published
+  cancellation event carries the durable primary flag.
 - Cancellation reason constant: `models.SessionOrphanedCancelReason`
   (`"orphaned by backend restart"`), distinct from the archive reasons;
   `IsArchiveCancelReason` returns false for it.
@@ -79,8 +84,11 @@ pass that owns archived tasks' stranded sessions.
 4. For each candidate, re-check `HasLiveExecution(session.ID)` at the moment
    of the write — a launch that raced the grace window since the read must
    not be reaped.
-5. Cancel via `CancelRunningTaskSessionByID`; on `nil` (raced to another
-   state) skip; on error warn and let the next tick retry.
+5. Cancel via `CancelRunningTaskSessionByID`; the statement re-asserts both
+   the state set (`STARTING`/`RUNNING`) and the staleness cutoff
+   (`updated_at < staleBefore`), so a row refreshed by an in-flight launch
+   between the liveness check and this write matches nothing; on `nil`
+   (raced or refreshed) skip; on error warn and let the next tick retry.
 6. Run the shared post-cancellation effects with the orphan reason.
 
 ## Failure and recovery

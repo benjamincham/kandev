@@ -16,6 +16,8 @@ acceptance_criteria:
   - AC-TASKS-RESTART-ORPHAN-SESSIONS-001.6
   - AC-TASKS-RESTART-ORPHAN-SESSIONS-001.7
   - AC-TASKS-RESTART-ORPHAN-SESSIONS-001.8
+  - AC-TASKS-RESTART-ORPHAN-SESSIONS-001.9
+  - AC-TASKS-RESTART-ORPHAN-SESSIONS-001.10
 system_design:
   - ../../specs/tasks/system-design/restart-orphaned-session-terminalization.md
 ---
@@ -102,8 +104,14 @@ None.
 Implemented in commit `aa7dc293b` (8 files, +458/−32): the second sweep pass,
 the two repository methods behind the `orphanedSessionRepository` capability,
 the orphan reason constant, the shared `notifyCancelledSessions` extraction,
-and the lifecycle-adapter `HasLiveExecution` wiring. Follow-up commit added
-the `Rebind` the SQL-portability gate requires on the candidate query and the
-specification package. Verification commands in the plan all pass; the three
-failing packages in the full suite reproduce identically on the base commit
-and are environmental.
+and the lifecycle-adapter `HasLiveExecution` wiring. Follow-up commits added
+the `Rebind` the SQL-portability gate requires, this specification package,
+and two review-fix hardenings: the cancel statement re-asserts the staleness
+cutoff (`updated_at < staleBefore`) so an in-flight launch refreshing its row
+between the sweep's liveness check and the write is never reaped
+(AC-.9, `TestService_OrphanedSessionReconciliationSparesRowRefreshedSinceCandidateRead`),
+and both cancellation RETURNING clauses now select `is_primary` so the
+published event carries the durable primary flag (AC-.10; this also repairs
+the pre-existing archive path, which had the same gap). Verification commands
+in the plan all pass; the failing packages in the full suite reproduce
+identically on the base commit and are environmental.

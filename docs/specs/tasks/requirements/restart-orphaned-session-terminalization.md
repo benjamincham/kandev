@@ -84,6 +84,15 @@ that the task board stays truthful and the task can move on.
 - **AC-TASKS-RESTART-ORPHAN-SESSIONS-001.8:** When the sweep terminalizes one
   session of a task, the system shall leave the task's other sessions
   untouched, so healthy siblings (for example `WAITING_FOR_INPUT`) survive.
+- **AC-TASKS-RESTART-ORPHAN-SESSIONS-001.9:** When a session row is refreshed
+  between the sweep's candidate read and its cancellation write (an in-flight
+  launch CAS-writing `STARTING` before it registers an execution), the system
+  shall not terminalize that session; the staleness cutoff is re-asserted at
+  write time inside the same statement as the transition.
+- **AC-TASKS-RESTART-ORPHAN-SESSIONS-001.10:** When the sweep publishes a
+  session cancellation event, the event shall carry the session's durable
+  `is_primary` flag, so the status-summary projection keeps the durable
+  primary-session assignment.
 
 ## Out of scope
 

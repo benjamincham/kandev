@@ -2124,7 +2124,7 @@ func (r *Repository) CancelActiveTaskSessionsByTaskID(ctx context.Context, taskI
 		WHERE task_id = ?
 			AND state IN ('CREATED', 'STARTING', 'RUNNING', 'WAITING_FOR_INPUT')
 		RETURNING id, agent_profile_id, agent_profile_snapshot, is_passthrough, name,
-			review_status, metadata, task_environment_id, state, updated_at
+			review_status, metadata, task_environment_id, state, updated_at, is_primary
 	`), string(models.TaskSessionStateCancelled), reason, now, now, taskID)
 	if err != nil {
 		return nil, err
@@ -2176,22 +2176,33 @@ func (r *Repository) ListStaleRunningSessionsOnUnarchivedTasks(ctx context.Conte
 	return r.loadWorktreesBatch(ctx, sessions)
 }
 
-// CancelRunningTaskSessionByID transitions a single STARTING/RUNNING session
-// to CANCELLED, returning the transitioned row, or nil when the session is no
-// longer in one of those states (already terminal, or raced to another state
-// between the sweep's candidate read and this write). Like
-// CancelActiveTaskSessionsByTaskID it is a pure DB state change that requires
-// no live agent execution, and it is session-scoped so the orphan sweep can
-// terminalize one session without cancelling healthy sibling sessions of the
-// same task. The UPDATE and the row selection happen in one atomic RETURNING
-// statement; the returned row carries only the fields that clause selects
-// (same set as CancelActiveTaskSessionsByTaskID, minus TaskID — callers pass
-// the task ID they already know). The write detaches from ctx like
+// CancelRunningTaskSessionByID transitions a single stale STARTING/RUNNING
+// session to CANCELLED, returning the transitioned row, or nil when the
+// session no longer matches (already terminal, raced to another state, or
+// refreshed since the sweep read it). Like CancelActiveTaskSessionsByTaskID
+// it is a pure DB state change that requires no live agent execution, and it
+// is session-scoped so the orphan sweep can terminalize one session without
+// cancelling healthy sibling sessions of the same task.
+//
+// staleBefore re-asserts the sweep's staleness cutoff at write time, closing
+// the read-then-write race against an in-flight launch: a launch CAS-writes
+// its session to STARTING (bumping updated_at) before it registers an
+// execution in the in-memory store, so between the sweep's liveness check and
+// this UPDATE the row can pass from "no live execution" to "launch in
+// progress". A row refreshed since the candidate read no longer satisfies
+// updated_at < staleBefore, the UPDATE matches nothing, and the next tick
+// re-evaluates a fresh row that the grace window protects until its
+// execution registers.
+//
+// The UPDATE and the row selection happen in one atomic RETURNING statement;
+// the returned row carries only the fields that clause selects (same set as
+// CancelActiveTaskSessionsByTaskID, minus TaskID — callers pass the task ID
+// they already know). The write detaches from ctx like
 // CancelActiveTaskSessionsByTaskID: once the sweep has decided this session
 // is orphaned, the terminal transition must not be lost to a caller-context
 // cancellation, and the 10s bound keeps a locked SQLite writer from stalling
 // the sweep pass. A failed write simply retries on the next sweep tick.
-func (r *Repository) CancelRunningTaskSessionByID(ctx context.Context, sessionID, reason string) (*models.TaskSession, error) {
+func (r *Repository) CancelRunningTaskSessionByID(ctx context.Context, sessionID, reason string, staleBefore time.Time) (*models.TaskSession, error) {
 	now := time.Now().UTC()
 	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
@@ -2200,9 +2211,10 @@ func (r *Repository) CancelRunningTaskSessionByID(ctx context.Context, sessionID
 		SET state = ?, error_message = ?, completed_at = ?, updated_at = ?
 		WHERE id = ?
 			AND state IN ('STARTING', 'RUNNING')
+			AND updated_at < ?
 		RETURNING id, agent_profile_id, agent_profile_snapshot, is_passthrough, name,
-			review_status, metadata, task_environment_id, state, updated_at
-	`), string(models.TaskSessionStateCancelled), reason, now, now, sessionID)
+			review_status, metadata, task_environment_id, state, updated_at, is_primary
+	`), string(models.TaskSessionStateCancelled), reason, now, now, sessionID, staleBefore)
 	if err != nil {
 		return nil, err
 	}
@@ -2226,15 +2238,16 @@ func (r *Repository) CancelRunningTaskSessionByID(ctx context.Context, sessionID
 // *models.TaskSession, mirroring scanTaskSessionRow's JSON-unmarshal and
 // int-to-bool/nullable-string conventions but for the narrower RETURNING
 // column set (id, agent_profile_id, agent_profile_snapshot, is_passthrough,
-// name, review_status, metadata, task_environment_id, state, updated_at).
-// taskID backfills TaskID, which RETURNING cannot supply since it's a query
-// parameter, not a returned column.
+// name, review_status, metadata, task_environment_id, state, updated_at,
+// is_primary). taskID backfills TaskID, which RETURNING cannot supply since
+// it's a query parameter, not a returned column.
 func scanCancelledTaskSessionRow(rows *sql.Rows, taskID string) (*models.TaskSession, error) {
 	session := &models.TaskSession{TaskID: taskID}
 	var state string
 	var metadataJSON string
 	var agentProfileSnapshotJSON string
 	var isPassthrough int
+	var isPrimary int
 	var reviewStatus sql.NullString
 	var agentProfileID sql.NullString
 	var name sql.NullString
@@ -2242,12 +2255,14 @@ func scanCancelledTaskSessionRow(rows *sql.Rows, taskID string) (*models.TaskSes
 	if err := rows.Scan(
 		&session.ID, &agentProfileID, &agentProfileSnapshotJSON, &isPassthrough, &name,
 		&reviewStatus, &metadataJSON, &session.TaskEnvironmentID, &state, &session.UpdatedAt,
+		&isPrimary,
 	); err != nil {
 		return nil, err
 	}
 
 	session.State = models.TaskSessionState(state)
 	session.IsPassthrough = isPassthrough == 1
+	session.IsPrimary = isPrimary == 1
 	if reviewStatus.Valid {
 		session.ReviewStatus = models.ReviewStatus(reviewStatus.String)
 	}
