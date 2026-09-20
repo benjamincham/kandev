@@ -230,34 +230,8 @@ func (s *Service) notifyStalledSessions(
 		}
 		return
 	}
-	// End per-session episodes for sessions no longer stalled, so a later
-	// stall on the same session reports again even while a sibling of the
-	// same task remains stalled.
-	stalledIDs := make(map[string]struct{}, len(stalled))
-	for _, session := range stalled {
-		stalledIDs[session.ID] = struct{}{}
-	}
-	for sessionID := range notified {
-		if _, still := stalledIDs[sessionID]; !still {
-			delete(notified, sessionID)
-		}
-	}
-	if notified == nil {
-		notified = make(map[string]struct{}, len(stalled))
-		s.stallNotifiedSessions[task.ID] = notified
-	}
-	newlyStalled := make([]*models.TaskSession, 0, len(stalled))
-	var oldestNewEvent time.Time
-	for _, session := range stalled {
-		if _, seen := notified[session.ID]; seen {
-			continue
-		}
-		newlyStalled = append(newlyStalled, session)
-		lastEvent := lastEventBySession[session.ID]
-		if oldestNewEvent.IsZero() || lastEvent.Before(oldestNewEvent) {
-			oldestNewEvent = lastEvent
-		}
-	}
+	notified = s.pruneStallEpisode(task.ID, stalled)
+	newlyStalled, oldestNewEvent := selectNewlyStalled(stalled, notified, lastEventBySession)
 	if len(newlyStalled) == 0 {
 		return
 	}
@@ -348,6 +322,51 @@ func (s *Service) healOrphanedSessions(
 	// session that started or re-registered between classification and this
 	// write is outside the predicate and survives.
 	s.finalizeCancelledSessionIDs(healCtx, task.ID, activeSessions, sessionIDs, deadline, models.SessionOrphanedCancelReason)
+}
+
+// pruneStallEpisode maintains the per-session episode set for one task:
+// entries for sessions no longer in the current stalled set are removed (so
+// a later stall on that session reports a fresh episode even while a
+// sibling of the same task remains stalled), and the task's entry is
+// created when it does not exist yet. It returns the live set to consult.
+func (s *Service) pruneStallEpisode(taskID string, stalled []*models.TaskSession) map[string]struct{} {
+	notified := s.stallNotifiedSessions[taskID]
+	if notified == nil {
+		notified = make(map[string]struct{}, len(stalled))
+		s.stallNotifiedSessions[taskID] = notified
+	}
+	stalledIDs := make(map[string]struct{}, len(stalled))
+	for _, session := range stalled {
+		stalledIDs[session.ID] = struct{}{}
+	}
+	for sessionID := range notified {
+		if _, still := stalledIDs[sessionID]; !still {
+			delete(notified, sessionID)
+		}
+	}
+	return notified
+}
+
+// selectNewlyStalled picks the stalled sessions not yet reported in the
+// open episode and reports the oldest event time across that selection, so
+// the payload's timing fields describe exactly the sessions it names.
+func selectNewlyStalled(
+	stalled []*models.TaskSession,
+	notified map[string]struct{},
+	lastEventBySession map[string]time.Time,
+) (newlyStalled []*models.TaskSession, oldestNewEvent time.Time) {
+	newlyStalled = make([]*models.TaskSession, 0, len(stalled))
+	for _, session := range stalled {
+		if _, seen := notified[session.ID]; seen {
+			continue
+		}
+		newlyStalled = append(newlyStalled, session)
+		lastEvent := lastEventBySession[session.ID]
+		if oldestNewEvent.IsZero() || lastEvent.Before(oldestNewEvent) {
+			oldestNewEvent = lastEvent
+		}
+	}
+	return newlyStalled, oldestNewEvent
 }
 
 // clearStallNotifications ends a task's stall episode once it no longer has
