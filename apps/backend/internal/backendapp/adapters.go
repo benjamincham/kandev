@@ -366,6 +366,7 @@ func (a *lifecycleAdapter) LaunchAgent(ctx context.Context, req *executor.Launch
 	// Extract worktree info from metadata if available
 	metadata := execution.MetadataSnapshot()
 	var worktreeID, worktreePath, worktreeBranch string
+	var worktreeBranchOwner, worktreeIntegrationRef string
 	if metadata != nil {
 		if id, ok := metadata["worktree_id"].(string); ok {
 			worktreeID = id
@@ -376,6 +377,10 @@ func (a *lifecycleAdapter) LaunchAgent(ctx context.Context, req *executor.Launch
 		if branch, ok := metadata["worktree_branch"].(string); ok {
 			worktreeBranch = branch
 		}
+	}
+	if execution.PrepareResult != nil {
+		worktreeBranchOwner = execution.PrepareResult.WorktreeBranchOwner
+		worktreeIntegrationRef = execution.PrepareResult.WorktreeIntegrationRef
 	}
 
 	// Surface per-repo worktree results from the prepare step so the orchestrator
@@ -396,6 +401,8 @@ func (a *lifecycleAdapter) LaunchAgent(ctx context.Context, req *executor.Launch
 				BranchSlug:                w.BranchSlug,
 				WorktreeID:                w.WorktreeID,
 				WorktreeBranch:            w.WorktreeBranch,
+				WorktreeBranchOwner:       w.WorktreeBranchOwner,
+				WorktreeIntegrationRef:    w.WorktreeIntegrationRef,
 				WorktreePath:              w.WorktreePath,
 				MainRepoGitDir:            w.MainRepoGitDir,
 				RequestedBaseBranch:       w.RequestedBaseBranch,
@@ -413,6 +420,8 @@ func (a *lifecycleAdapter) LaunchAgent(ctx context.Context, req *executor.Launch
 		WorktreeID:                worktreeID,
 		WorktreePath:              worktreePath,
 		WorktreeBranch:            worktreeBranch,
+		WorktreeBranchOwner:       worktreeBranchOwner,
+		WorktreeIntegrationRef:    worktreeIntegrationRef,
 		RequestedBaseBranch:       requestedBaseBranch,
 		BaseBranch:                baseBranch,
 		BaseBranchFallbackWarning: baseBranchFallbackWarning,
@@ -465,10 +474,12 @@ func buildLifecycleLaunchRequest(
 		TaskRepositoryID:              req.TaskRepositoryID,
 		RepositoryPath:                req.RepositoryPath,
 		BaseBranch:                    req.BaseBranch,
+		IntegrationRef:                req.IntegrationRef,
 		DefaultBranch:                 req.DefaultBranch,
 		CheckoutBranch:                req.CheckoutBranch,
 		PRNumber:                      req.PRNumber,
 		RemoteContribution:            req.RemoteContribution,
+		CheckoutOptions:               req.CheckoutOptions,
 		ContributionDestination:       req.ContributionDestination,
 		ComparisonTarget:              req.ComparisonTarget,
 		WorktreeBranchPrefix:          req.WorktreeBranchPrefix,
@@ -529,10 +540,12 @@ func lifecycleRepoLaunchSpecs(repos []executor.RepoSpec) []lifecycle.RepoLaunchS
 			RepositoryURL:              r.RepositoryURL,
 			RepoName:                   r.RepoName,
 			BaseBranch:                 r.BaseBranch,
+			IntegrationRef:             r.IntegrationRef,
 			DefaultBranch:              r.DefaultBranch,
 			CheckoutBranch:             r.CheckoutBranch,
 			PRNumber:                   r.PRNumber,
 			RemoteContribution:         r.RemoteContribution,
+			CheckoutOptions:            r.CheckoutOptions,
 			ContributionDestination:    r.ContributionDestination,
 			ComparisonTarget:           r.ComparisonTarget,
 			WorktreeID:                 r.WorktreeID,
@@ -945,6 +958,27 @@ func (a *lifecycleAdapter) GetExecutionIDForSession(ctx context.Context, session
 
 func (a *lifecycleAdapter) ListExecutionsForTask(taskID string) []lifecycle.ExecutionReference {
 	return a.mgr.ListExecutionsForTask(taskID)
+}
+
+// LiveSessionIDsForTask satisfies taskservice.SessionExecutionRegistry: the
+// session IDs under taskID that currently have a live in-memory execution
+// registered by the agent runtime. The session reconciliation sweep uses the
+// snapshot to tell an active session whose backing actor is alive from one
+// whose actor is gone. Pinned here so a signature drift is a build error.
+var _ taskservice.SessionExecutionRegistry = (*lifecycleAdapter)(nil)
+
+func (a *lifecycleAdapter) LiveSessionIDsForTask(taskID string) []string {
+	references := a.mgr.ListExecutionsForTask(taskID)
+	sessionIDs := make([]string, 0, len(references))
+	for _, reference := range references {
+		// ListExecutionsForTask includes workspace-only infrastructure created
+		// by file/shell access. Only an execution with an agent command (or a
+		// live passthrough process) owns the agent session lifecycle.
+		if reference.SessionID != "" && a.mgr.HasLiveAgentExecution(reference.SessionID) {
+			sessionIDs = append(sessionIDs, reference.SessionID)
+		}
+	}
+	return sessionIDs
 }
 
 func (a *lifecycleAdapter) GetRemoteRuntimeStatusBySession(ctx context.Context, sessionID string) (*executor.RemoteRuntimeStatus, error) {
@@ -1426,6 +1460,15 @@ func (a *messageCreatorAdapter) CreateToolCallMessage(ctx context.Context, taskI
 // If the message doesn't exist, it creates it using taskID, turnID, and msgType.
 func (a *messageCreatorAdapter) UpdateToolCallMessage(ctx context.Context, taskID, toolCallID, parentToolCallID, status, result, agentSessionID, title, turnID, msgType string, normalized *streams.NormalizedPayload) error {
 	return a.svc.UpdateToolCallMessageWithCreate(ctx, agentSessionID, toolCallID, parentToolCallID, status, result, title, normalized, taskID, turnID, msgType)
+}
+
+func (a *messageCreatorAdapter) UpsertAgentPlanMessage(
+	ctx context.Context,
+	taskID, sourceToolCallID, agentSessionID, content, turnID string,
+) error {
+	return a.svc.UpsertAgentPlanMessage(
+		ctx, taskID, sourceToolCallID, agentSessionID, content, turnID,
+	)
 }
 
 // CreateSessionMessage creates a message for non-chat session updates (status/progress/error/etc).

@@ -19,6 +19,54 @@ import (
 
 // Message operations
 
+// GetLastMessageTimeBySessionIDs returns the newest task_session_messages
+// updated_at for each requested session, one chunked query over
+// idx_messages_session_updated. Sessions with no messages are absent from
+// the result; callers fall back to the session row's own timestamps. The
+// session reconciliation sweep uses this to measure per-session event
+// silence without loading any transcript content.
+func (r *Repository) GetLastMessageTimeBySessionIDs(ctx context.Context, sessionIDs []string) (map[string]time.Time, error) {
+	result := make(map[string]time.Time, len(sessionIDs))
+	if len(sessionIDs) == 0 {
+		return result, nil
+	}
+
+	for _, chunk := range chunkIDs(sessionIDs, sqliteMaxHostParams) {
+		placeholders, ids := buildInPlaceholders(chunk)
+		query := `
+			SELECT task_session_id, MAX(updated_at)
+			FROM task_session_messages
+			WHERE task_session_id IN (` + placeholders + `)
+			GROUP BY task_session_id`
+		rows, err := r.ro.QueryContext(ctx, r.ro.Rebind(query), ids...)
+		if err != nil {
+			return nil, fmt.Errorf("load last message time by session: %w", err)
+		}
+		for rows.Next() {
+			var (
+				sessionID      string
+				rawLastMessage interface{}
+			)
+			if err := rows.Scan(&sessionID, &rawLastMessage); err != nil {
+				_ = rows.Close()
+				return nil, fmt.Errorf("scan last message time by session: %w", err)
+			}
+			lastMessage, err := parseTaskActivityTime(rawLastMessage)
+			if err != nil {
+				_ = rows.Close()
+				return nil, fmt.Errorf("parse last message time for session %q: %w", sessionID, err)
+			}
+			result[sessionID] = lastMessage
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return nil, fmt.Errorf("read last message time by session: %w", err)
+		}
+		_ = rows.Close()
+	}
+	return result, nil
+}
+
 // CreateMessage creates a new message
 func (r *Repository) CreateMessage(ctx context.Context, message *models.Message) error {
 	if message.ID == "" {
@@ -939,23 +987,18 @@ func (r *Repository) FindMessageByPendingIDAndQuestion(ctx context.Context, sess
 // `status` is the user's approve/reject decision, not the tool call state. Forcing them to
 // "complete" wipes "approved"/"rejected" and re-shows the prompt buttons in the UI.
 func (r *Repository) CompletePendingToolCallsForTurn(ctx context.Context, turnID string) (int64, error) {
-	drv := r.db.DriverName()
-	query := fmt.Sprintf(`
-		UPDATE task_session_messages
-		SET metadata = %s, updated_at = CURRENT_TIMESTAMP
-		WHERE turn_id = ?
-		  AND type != 'permission_request'
-		  AND %s NOT IN ('complete', 'error')
-		  AND %s
-	`, dialect.JSONSet(drv, "metadata", "status", "complete"),
-		dialect.JSONExtract(drv, "metadata", "status"),
-		dialect.JSONExtractIsNotNull(drv, "metadata", "tool_call_id"))
-	result, err := r.db.ExecContext(ctx, r.db.Rebind(query), turnID)
+	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
-		return 0, fmt.Errorf("failed to complete pending tool calls for turn %s: %w", turnID, err)
+		return 0, err
 	}
-
-	rows, _ := result.RowsAffected()
+	defer func() { _ = tx.Rollback() }()
+	rows, err := r.completePendingToolCallsForTurnTx(ctx, tx, turnID)
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
 	return rows, nil
 }
 

@@ -10,9 +10,15 @@ import (
 	"go.uber.org/zap"
 )
 
-// StartArchivedSessionReconciliationLoop starts a background goroutine that
-// periodically re-finalizes stuck task sessions that nothing else in the
-// request path will ever move again.
+// StartSessionReconciliationLoop starts the background goroutine that
+// periodically reconciles task sessions that no request path owns anymore.
+// Each tick runs two passes:
+//
+//  1. The archived-task pass: re-finalize archived tasks whose sessions
+//     never made it to a terminal DB state (see runArchivedSessionReconciliation).
+//  2. The active-task pass: detect and heal unarchived tasks holding active
+//     sessions whose backing execution is gone (see runActiveSessionSweep in
+//     active_session_stall.go).
 //
 // Pass 1 — archived tasks. finalizeCancelledSessions (see service_tasks.go)
 // already bounds its session-cancellation retry to a handful of fixed attempts
@@ -36,7 +42,7 @@ import (
 // Both passes follow the exact periodic-sweep shape StartAutoArchiveLoop
 // already uses and re-invoke the same finalize transitions; as long as the
 // process keeps running, a later pass retries what an earlier pass missed.
-func (s *Service) StartArchivedSessionReconciliationLoop(ctx context.Context) {
+func (s *Service) StartSessionReconciliationLoop(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Minute)
 	go func() {
 		defer ticker.Stop()
@@ -44,13 +50,22 @@ func (s *Service) StartArchivedSessionReconciliationLoop(ctx context.Context) {
 			select {
 			case <-ctx.Done():
 				return
-			case <-ticker.C:
+			case now := <-ticker.C:
 				s.runArchivedSessionReconciliation(ctx)
 				s.runOrphanedSessionReconciliation(ctx)
+				s.runActiveSessionSweep(ctx, now)
 			}
 		}
 	}()
-	s.logger.Info("task-session reconciliation loop started (every 1 minute)")
+	s.logger.Info("session reconciliation loop started (every 1 minute)")
+}
+
+// StartArchivedSessionReconciliationLoop keeps the pre-stall-sweep entry
+// point available for integrations that started the archived pass directly.
+// New startup wiring should use StartSessionReconciliationLoop so all passes
+// run from one ticker.
+func (s *Service) StartArchivedSessionReconciliationLoop(ctx context.Context) {
+	s.StartSessionReconciliationLoop(ctx)
 }
 
 func (s *Service) runArchivedSessionReconciliation(ctx context.Context) {
@@ -80,7 +95,7 @@ func (s *Service) runArchivedSessionReconciliation(ctx context.Context) {
 			// between the candidate list query and this read.
 			continue
 		}
-		s.finalizeCancelledSessions(reconcileCtx, taskID, activeSessions, deadline)
+		s.finalizeCancelledSessions(reconcileCtx, taskID, activeSessions, deadline, models.SessionArchiveCancelReason)
 	}
 }
 
@@ -203,9 +218,9 @@ func (s *Service) reconcileOrphanedSessionsUntil(
 		completionCtx, cancelCompletion := context.WithDeadline(
 			context.WithoutCancel(ctx), completionDeadline,
 		)
-		s.notifyCancelledSessions(completionCtx, session.TaskID,
+		s.runCancelledSessionEffects(completionCtx, session.TaskID,
 			[]*models.TaskSession{session}, []*models.TaskSession{cancelled},
-			models.SessionOrphanedCancelReason, completionDeadline)
+			completionDeadline, models.SessionOrphanedCancelReason)
 		cancelCompletion()
 	}
 }

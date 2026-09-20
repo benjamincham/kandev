@@ -7,6 +7,8 @@ description: "Install agent CLIs and create profiles for models, modes, flags, s
 
 An **agent** is Kandev's integration with a coding-agent CLI. A **profile** is its reusable launch configuration. Create separate profiles when model, credentials, or permissions need different trust boundaries.
 
+The composer model picker shows the session's agent CLI logo beside the selected model and beside **Model** in the open popover. This identifies the CLI running the session, even when it supports models from several vendors.
+
 Agent authentication is separate from repository and integration credentials.
 
 ## Quick path
@@ -22,13 +24,44 @@ Open **Settings > Agents** (`/settings/agents`). Kandev scans the host on which 
 
 ![Settings > Agents showing detected agent CLIs, profiles, configured status, unavailable status, update indicators, and New profile controls.](../screenshots/settings-agents.png)
 
-The production registry currently shows Auggie, Claude, Codex, Copilot, Gemini, OpenCode, Amp, Qwen, iFlow (beta), Droid, Kilocode, Pi, Cursor, Kimi, Kiro, Qoder, Trae, `omp`, Devin, Grok, Hermes, Goose, and Antigravity. An entry is usable only when its executable is supported on the current platform and available to the Kandev process. Development and E2E profiles can add mock agents that are not product integrations.
+The production registry currently shows Auggie, Claude, Codex, Copilot, Gemini, OpenCode, Amp, Qwen, iFlow (beta), Droid, Kilocode, Pi, Cursor, Kimi, Kiro, Qoder, Trae, `omp`, Devin, Grok, Hermes, Goose, Muse, and Antigravity. An entry is usable only when its executable is supported on the current platform and available to the Kandev process. Development and E2E profiles can add mock agents that are not product integrations.
 
 Hermes launches with `hermes acp`. Install the required `hermes` executable from its **Settings > Agents** card, which runs the official Hermes installer. Hermes currently supports task and workspace sessions. Office-assigned skill injection is not yet supported.
 
 Goose launches with `goose acp`. Its **Settings > Agents** card runs only the official `download_cli.sh` installer. Homebrew (`block-goose-cli`) and pip (`pip install goose-ai`) are manual alternatives. Configure your model provider with `goose configure`. Goose currently supports task and workspace sessions.
 
 Antigravity has no automated install: Google distributes `agy_acp_server.par` (`agy_acp_server.exe` on Windows) and its `localharness_external` or `localharness` sibling (`localharness_external.exe` or `localharness.exe` on Windows) as a signed archive through the [ACP registry](https://github.com/agentclientprotocol/registry/tree/main/antigravity-acp) rather than npm, so extract both files into one directory and add it to PATH yourself. Kandev fails discovery closed when the harness sibling is missing or not executable, so a partial extraction reports as not installed rather than as a broken session.
+
+### Muse command surfaces
+
+Muse Code has no native ACP server, so Kandev runs it through the community
+[`@bex-co/muse-code-acp`](https://github.com/bex-co/muse-code-acp) adapter,
+which is not affiliated with Meta:
+
+- Structured ACP sessions and one-shot inference use
+  `npx --yes --prefer-offline @bex-co/muse-code-acp@<effective-version>`, which
+  needs Node.js 22 or later.
+- The adapter drives the native `muse` executable through `muse serve`; CLI
+  Passthrough starts `muse` directly.
+- On POSIX hosts, the Muse install action runs the official
+  `https://dev.meta.ai/install.sh` installer into the first writable directory
+  on the backend's `PATH`. Windows has no automated Muse install action because
+  the official installer is a POSIX shell script.
+
+Kandev detects Muse when `muse` is on the `PATH` of the backend process and
+responds to `--version`. Sign in with `muse login`, or set `META_API_KEY` for
+headless and remote executors. Muse keeps sessions under
+`~/.local/share/muse`, which Kandev uses for session resume.
+Kandev removes `XDG_CONFIG_HOME` and `XDG_DATA_HOME` overrides from Muse
+processes so credentials and sessions use these managed paths. Executors use an
+isolated home directory for both `~/.config/muse` and `~/.local/share/muse`; the
+real host home directory is not mounted.
+
+The adapter starts sessions on the `model` in Muse's
+`~/.config/muse/settings.json` and falls back to its own default otherwise,
+while the interactive `muse` CLI falls back to Meta's catalogue default. To
+pin one model for both, set it there, for example
+`{"schema_version": 1, "model": "muse-spark-1.3"}`.
 
 ### Pi command surfaces
 
@@ -54,7 +87,7 @@ The status shown on this page is authoritative for the current host. A CLI that 
 ### Update a managed agent runtime
 
 The update icon is available on managed Claude, Codex, OpenCode, Copilot,
-Gemini, and Pi agent cards. It updates the runtime on the Kandev host.
+Gemini, Pi, and Muse agent cards. It updates the runtime on the Kandev host.
 
 Each managed runtime has a reviewed Kandev default. If you have not selected a
 version, Kandev uses that exact default for probes, sessions, standalone
@@ -245,6 +278,11 @@ exclusive health probe before it becomes eligible again. This shared error
 classification is used by task/Kanban and Office routing, while the per-
 candidate policies are configured on dynamic profiles.
 
+When a task launch waits for session capacity, Kandev keeps the selected
+destination and retries it automatically. Inspecting another session does not
+resume a parked predecessor. Use an explicit **Resume** action or send a
+message for manual recovery. These actions can override the automatic ceiling.
+
 Provider errors that occur before a result can use the configured action, such
 as retrying the current candidate or trying the next candidate. A started turn
 with an ambiguous result does not switch providers automatically. If no
@@ -382,6 +420,8 @@ Literal values remain in profile configuration. A secret reference avoids copyin
 ## Permissions and unattended work
 
 In a structured ACP session, the agent can present a permission request and its available responses. With **Auto-approve all permissions** disabled, a person chooses a response in the session. With it enabled, the runtime selects the first allow-once or allow-always response without waiting. If the agent supplies no allow response, Kandev selects its first response even when that response is not approval; with no responses, it cancels.
+
+Claude ACP also has a narrower built-in rule. When the agent uses the host-injected `kandev` MCP server, Kandev automatically selects an offered allow-once response, or allow-always when allow-once is not offered, even when **Auto-approve all permissions** is disabled. This covers every tool on that server, including task creation, task deletion, and plan changes. It is not a saved approval decision and is recreated for each task or Quick Chat session. Kandev still enforces MCP authentication, task and session authorization, user-question barriers, and workflow gates. Shell commands, file operations, third-party tools, and ambiguous requests keep the normal permission flow.
 
 An external MCP client can also list live pending requests for an authorized task and submit one
 exact option originally offered by the agent. The request-generation ID prevents an old approval
