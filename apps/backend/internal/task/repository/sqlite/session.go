@@ -103,7 +103,11 @@ func stampTurnDefaults(turn *models.Turn) {
 
 // insertTurnRow inserts turn's row via execer, which is either r.db (a plain,
 // non-transactional insert) or a *sql.Tx (participating in the caller's
-// transaction).
+// transaction). A new turn is session activity, so the same statement batch
+// also refreshes task_sessions.updated_at: the session reconciliation sweep
+// measures event silence from that row (and the newest message), and a turn
+// dispatched without a user message (auto-start, workflow on_enter) must
+// reset the clock even though no message row exists yet.
 func (r *Repository) insertTurnRow(ctx context.Context, execer taskSessionExecutor, turn *models.Turn) error {
 	metadataJSON := "{}"
 	if turn.Metadata != nil {
@@ -114,10 +118,15 @@ func (r *Repository) insertTurnRow(ctx context.Context, execer taskSessionExecut
 		metadataJSON = string(metadataBytes)
 	}
 
-	_, err := execer.ExecContext(ctx, r.db.Rebind(`
+	if _, err := execer.ExecContext(ctx, r.db.Rebind(`
 		INSERT INTO task_session_turns (id, task_session_id, task_id, execution_profile_id, route_generation, started_at, completed_at, metadata, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`), turn.ID, turn.TaskSessionID, turn.TaskID, turn.ExecutionProfileID, turn.RouteGeneration, turn.StartedAt, turn.CompletedAt, metadataJSON, turn.CreatedAt, turn.UpdatedAt)
+	`), turn.ID, turn.TaskSessionID, turn.TaskID, turn.ExecutionProfileID, turn.RouteGeneration, turn.StartedAt, turn.CompletedAt, metadataJSON, turn.CreatedAt, turn.UpdatedAt); err != nil {
+		return err
+	}
+	_, err := execer.ExecContext(ctx, r.db.Rebind(`
+		UPDATE task_sessions SET updated_at = ? WHERE id = ?
+	`), turn.UpdatedAt, turn.TaskSessionID)
 	return err
 }
 
@@ -2140,6 +2149,54 @@ func (r *Repository) CancelActiveTaskSessionsByTaskID(ctx context.Context, taskI
 		sessions = append(sessions, session)
 	}
 	return sessions, rows.Err()
+}
+
+// CancelActiveTaskSessionsByIDs is documented on the SessionRepository
+// interface. It shares CancelActiveTaskSessionsByTaskID's atomic
+// UPDATE ... RETURNING shape and detached-but-bounded write context, so the
+// returned rows are exactly the sessions this call transitioned, and a
+// client disconnect mid-write cannot lose the committed cancellation.
+// Chunking keeps the placeholder count below the host-parameter limit; the
+// active set of one task is far below it, so multi-chunk calls are a
+// correctness backstop, not an expected path.
+func (r *Repository) CancelActiveTaskSessionsByIDs(ctx context.Context, taskID string, sessionIDs []string, reason string) ([]*models.TaskSession, error) {
+	if len(sessionIDs) == 0 {
+		return nil, nil
+	}
+	now := time.Now().UTC()
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	var sessions []*models.TaskSession
+	for _, chunk := range chunkIDs(sessionIDs, sqliteMaxHostParams) {
+		placeholders, args := buildInPlaceholders(chunk)
+		args = append([]interface{}{string(models.TaskSessionStateCancelled), reason, now, now, taskID}, args...)
+		rows, err := r.db.QueryContext(writeCtx, r.db.Rebind(`
+			UPDATE task_sessions
+			SET state = ?, error_message = ?, completed_at = ?, updated_at = ?
+			WHERE task_id = ?
+				AND id IN (`+placeholders+`)
+				AND state IN ('CREATED', 'STARTING', 'RUNNING', 'WAITING_FOR_INPUT')
+			RETURNING id, agent_profile_id, agent_profile_snapshot, is_passthrough, name,
+				review_status, metadata, task_environment_id, state, updated_at
+		`), args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			session, err := scanCancelledTaskSessionRow(rows, taskID)
+			if err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			sessions = append(sessions, session)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		_ = rows.Close()
+	}
+	return sessions, nil
 }
 
 // scanCancelledTaskSessionRow scans one row produced by

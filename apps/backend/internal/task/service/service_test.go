@@ -33,6 +33,9 @@ type MockEventBus struct {
 	mu              sync.Mutex
 	publishedEvents []*bus.Event
 	closed          bool
+	// publishErrors, when non-nil, makes Publish fail for the listed
+	// subjects, for tests of publish-failure retry semantics.
+	publishErrors map[string]error
 }
 
 type recordingTaskClarificationCanceller struct {
@@ -84,6 +87,9 @@ func NewMockEventBus() *MockEventBus {
 func (m *MockEventBus) Publish(ctx context.Context, subject string, event *bus.Event) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err, inject := m.publishErrors[subject]; inject {
+		return err
+	}
 	m.publishedEvents = append(m.publishedEvents, event)
 	return nil
 }

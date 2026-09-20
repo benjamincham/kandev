@@ -116,38 +116,62 @@ func (s *Service) sweepTaskSessions(
 		return
 	}
 
-	stalled, healable, oldestEvent := classifyOrphanedSessions(
-		orphaned, s.lastSessionEventTimes(ctx, orphaned), now, threshold, grace,
+	stalled, healable, lastEventBySession, classErr := s.classifyOrphanedSessions(
+		ctx, orphaned, now, threshold, grace,
 	)
-	s.notifyStalledSessions(ctx, task, stalled, oldestEvent, now, threshold)
+	if classErr != nil {
+		// The per-session activity clock could not be read. updated_at alone
+		// understates activity (message writes never touch it), so classifying
+		// from the incomplete clock could stall-report or heal recently
+		// active work. Fail closed: skip this task this tick and retry next
+		// sweep.
+		return
+	}
+	s.notifyStalledSessions(ctx, task, stalled, lastEventBySession, now, threshold)
 	s.healOrphanedSessions(ctx, task, activeSessions, orphaned, healable)
 }
 
 // classifyOrphanedSessions splits execution-less sessions into stalled
 // (event-silent beyond threshold) and healable (silent beyond the grace
-// window), and reports the oldest event time across the stalled set for the
-// task.stalled payload.
-func classifyOrphanedSessions(
+// window), and reports each stalled session's resolved event time for the
+// task.stalled payload. It returns an error when a session's activity clock
+// cannot be read: silence classification is only sound on a complete clock,
+// so callers must skip the task rather than fall back to a stale timestamp.
+func (s *Service) classifyOrphanedSessions(
+	ctx context.Context,
 	orphaned []*models.TaskSession,
-	lastEventBySession map[string]time.Time,
 	now time.Time,
 	threshold, grace time.Duration,
-) (stalled, healable []*models.TaskSession, oldestEvent time.Time) {
+) (stalled, healable []*models.TaskSession, lastEventBySession map[string]time.Time, err error) {
+	times, readErr := s.messages.GetLastMessageTimeBySessionIDs(ctx, sessionIDs(orphaned))
+	if readErr != nil {
+		s.logger.Warn("active-session sweep: failed to load last message times; skipping task this tick",
+			zap.Error(readErr))
+		return nil, nil, nil, readErr
+	}
+	lastEventBySession = make(map[string]time.Time, len(orphaned))
 	for _, session := range orphaned {
-		lastEvent := lastSessionEventAt(session, lastEventBySession)
+		lastEvent := lastSessionEventAt(session, times)
+		lastEventBySession[session.ID] = lastEvent
 		silence := now.Sub(lastEvent)
 		if silence < threshold {
 			continue
 		}
 		stalled = append(stalled, session)
-		if oldestEvent.IsZero() || lastEvent.Before(oldestEvent) {
-			oldestEvent = lastEvent
-		}
 		if silence >= grace {
 			healable = append(healable, session)
 		}
 	}
-	return stalled, healable, oldestEvent
+	return stalled, healable, lastEventBySession, nil
+}
+
+// sessionIDs extracts the non-empty session IDs from sessions.
+func sessionIDs(sessions []*models.TaskSession) []string {
+	ids := make([]string, 0, len(sessions))
+	for _, session := range sessions {
+		ids = append(ids, session.ID)
+	}
+	return ids
 }
 
 // lastSessionEventAt resolves one session's event clock: the newer of its
@@ -173,26 +197,6 @@ func (s *Service) liveSessionSet(taskID string) map[string]struct{} {
 	return live
 }
 
-// lastSessionEventTimes loads the newest message time for each session in
-// one batched query. A read failure degrades to the session row's own
-// updated_at clock rather than skipping the pass: updated_at alone still
-// classifies correctly for every stalled session whose row went quiet.
-func (s *Service) lastSessionEventTimes(
-	ctx context.Context, orphaned []*models.TaskSession,
-) map[string]time.Time {
-	ids := make([]string, 0, len(orphaned))
-	for _, session := range orphaned {
-		ids = append(ids, session.ID)
-	}
-	times, err := s.messages.GetLastMessageTimeBySessionIDs(ctx, ids)
-	if err != nil {
-		s.logger.Warn("active-session sweep: failed to load last message times; falling back to session updated_at",
-			zap.Error(err))
-		return nil
-	}
-	return times
-}
-
 // stallPayload field keys (task_id / workspace_id exist as constants for
 // other features; these name this payload's own keys).
 const (
@@ -202,35 +206,57 @@ const (
 
 // notifyStalledSessions emits the task.stalled warning and event for
 // sessions not yet reported in this stall episode. See stallNotifiedSessions
-// for the episode semantics.
+// for the episode semantics. The payload's timing fields describe exactly
+// the sessions it names: a session already reported earlier in the episode
+// must not skew stalled_for/last_event_at for a newly reported sibling.
+//
+// Delivery is recorded only after the event publish succeeds, so a transient
+// publish failure retries on the next sweep tick.
 func (s *Service) notifyStalledSessions(
 	ctx context.Context,
 	task *models.Task,
 	stalled []*models.TaskSession,
-	oldestEvent time.Time,
+	lastEventBySession map[string]time.Time,
 	now time.Time,
 	threshold time.Duration,
 ) {
-	if len(stalled) == 0 {
-		s.clearStallNotifications(task.ID)
-		return
-	}
 	if s.stallNotifiedSessions == nil {
 		s.stallNotifiedSessions = make(map[string]map[string]struct{})
 	}
 	notified := s.stallNotifiedSessions[task.ID]
-	newlyStalled := make([]*models.TaskSession, 0, len(stalled))
+	if len(stalled) == 0 {
+		if notified != nil {
+			delete(s.stallNotifiedSessions, task.ID)
+		}
+		return
+	}
+	// End per-session episodes for sessions no longer stalled, so a later
+	// stall on the same session reports again even while a sibling of the
+	// same task remains stalled.
+	stalledIDs := make(map[string]struct{}, len(stalled))
 	for _, session := range stalled {
-		if _, seen := notified[session.ID]; !seen {
-			newlyStalled = append(newlyStalled, session)
+		stalledIDs[session.ID] = struct{}{}
+	}
+	for sessionID := range notified {
+		if _, still := stalledIDs[sessionID]; !still {
+			delete(notified, sessionID)
 		}
 	}
 	if notified == nil {
 		notified = make(map[string]struct{}, len(stalled))
 		s.stallNotifiedSessions[task.ID] = notified
 	}
-	for _, session := range newlyStalled {
-		notified[session.ID] = struct{}{}
+	newlyStalled := make([]*models.TaskSession, 0, len(stalled))
+	var oldestNewEvent time.Time
+	for _, session := range stalled {
+		if _, seen := notified[session.ID]; seen {
+			continue
+		}
+		newlyStalled = append(newlyStalled, session)
+		lastEvent := lastEventBySession[session.ID]
+		if oldestNewEvent.IsZero() || lastEvent.Before(oldestNewEvent) {
+			oldestNewEvent = lastEvent
+		}
 	}
 	if len(newlyStalled) == 0 {
 		return
@@ -241,7 +267,7 @@ func (s *Service) notifyStalledSessions(
 		sessionIDs = append(sessionIDs, session.ID)
 	}
 	sort.Strings(sessionIDs)
-	silence := now.Sub(oldestEvent)
+	silence := now.Sub(oldestNewEvent)
 	s.logger.Warn("stalled_task detected: active session with no live execution and no recent events",
 		zap.String("task_id", task.ID),
 		zap.Strings("session_ids", sessionIDs),
@@ -255,7 +281,7 @@ func (s *Service) notifyStalledSessions(
 		stallPayloadWorkspaceIDKey: task.WorkspaceID,
 		"session_ids":              sessionIDs,
 		"stalled_for":              silence.String(),
-		"last_event_at":            oldestEvent.UTC().Format(time.RFC3339Nano),
+		"last_event_at":            oldestNewEvent.UTC().Format(time.RFC3339Nano),
 		"detection_only":           true,
 	}
 	event := bus.NewEvent(events.TaskStalled, "task-reconciliation", payload)
@@ -263,6 +289,10 @@ func (s *Service) notifyStalledSessions(
 		s.logger.Error("failed to publish stalled task event",
 			zap.String("task_id", task.ID),
 			zap.Error(err))
+		return
+	}
+	for _, sessionID := range sessionIDs {
+		notified[sessionID] = struct{}{}
 	}
 }
 
@@ -279,12 +309,28 @@ func (s *Service) notifyStalledSessions(
 // that still has any live or merely-stalled session keeps its rows: killing
 // live work because a sibling session died is never the sweep's call, and a
 // later pass heals once the remaining sessions go quiet too.
+//
+// The guard is re-evaluated at the cancellation boundary itself: the
+// liveness snapshot was taken before the silence reads, and an execution
+// that registered (or a session that started) in between must abort the
+// heal. Re-checking LiveSessionIDsForTask immediately before the write is
+// not a lock — a registration can still land after it — but it closes the
+// window from "seconds of reads ago" to "instantaneous", and any residual
+// race must also co-occur with every session of the task having been
+// silent past twice the stall threshold. The next sweep tick heals once
+// the condition genuinely holds.
 func (s *Service) healOrphanedSessions(
 	ctx context.Context,
 	task *models.Task,
 	activeSessions, orphaned, healable []*models.TaskSession,
 ) {
 	if len(healable) == 0 || len(orphaned) != len(activeSessions) || len(healable) != len(orphaned) {
+		return
+	}
+	if live := s.liveSessionSet(task.ID); len(live) > 0 {
+		s.logger.Info("active-session sweep: heal aborted, a live execution appeared for the task",
+			zap.String("task_id", task.ID),
+			zap.Int("live_sessions", len(live)))
 		return
 	}
 	sessionIDs := make([]string, 0, len(healable))
@@ -297,7 +343,11 @@ func (s *Service) healOrphanedSessions(
 	deadline := archivecascade.ArchiveDeadline(ctx)
 	healCtx, cancel := archivecascade.ContinuationContextUntil(ctx, deadline)
 	defer cancel()
-	s.finalizeCancelledSessions(healCtx, task.ID, activeSessions, deadline, models.SessionOrphanedCancelReason)
+	// sessionIDs scopes the cancellation to exactly the sessions this pass
+	// classified as orphaned; combined with the liveness re-check above, a
+	// session that started or re-registered between classification and this
+	// write is outside the predicate and survives.
+	s.finalizeCancelledSessionIDs(healCtx, task.ID, activeSessions, sessionIDs, deadline, models.SessionOrphanedCancelReason)
 }
 
 // clearStallNotifications ends a task's stall episode once it no longer has

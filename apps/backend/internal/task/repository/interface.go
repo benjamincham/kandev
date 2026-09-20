@@ -468,6 +468,16 @@ type SessionRepository interface {
 	// behavior by picking up IDLE sessions.
 	ListLiveWorkspaceSessions(ctx context.Context) ([]*models.TaskSession, error)
 	CancelActiveTaskSessionsByTaskID(ctx context.Context, taskID, reason string) ([]*models.TaskSession, error)
+	// CancelActiveTaskSessionsByIDs transitions exactly the listed active
+	// sessions (CREATED/STARTING/RUNNING/WAITING_FOR_INPUT) to CANCELLED,
+	// returning the full row of each session actually transitioned. It is
+	// the session-scoped counterpart of CancelActiveTaskSessionsByTaskID:
+	// sessions outside the ID list — including ones that became active
+	// after the caller classified its set — are never touched. Callers that
+	// classified a stale or partial snapshot use it so a mid-sweep
+	// registration of new live work cannot be cancelled by a bulk
+	// task-scoped write. Same RETURNING contract as the task-scoped method.
+	CancelActiveTaskSessionsByIDs(ctx context.Context, taskID string, sessionIDs []string, reason string) ([]*models.TaskSession, error)
 	HasActiveTaskSessionsByAgentProfile(ctx context.Context, agentProfileID string) (bool, error)
 	GetActiveTaskInfoByAgentProfile(ctx context.Context, agentProfileID string) ([]agentdto.ActiveTaskInfo, error)
 	HasActiveTaskSessionsByExecutor(ctx context.Context, executorID string) (bool, error)

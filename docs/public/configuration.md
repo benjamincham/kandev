@@ -181,11 +181,17 @@ startup setting, not a database or Settings value.
 sweep. When an unarchived task holds an active session with no live execution
 behind it and no session events or messages for longer than this threshold,
 Kandev emits a `task.stalled` event and logs a warning. After twice the
-threshold of silence, the sweep cancels the orphaned session so the task stops
-showing a phantom active session. Like the timeout above, only positive Go
-durations are accepted, an unset, invalid, zero, or negative value uses the
-`2h` default, the environment variable overrides YAML, and changes require a
-backend restart.
+threshold of silence, the sweep cancels the orphaned sessions so the task
+stops showing a phantom active session. The cancel is all-or-nothing per
+task: it runs only when every active session of the task is orphaned and
+past the grace window, so a session that still has a live execution blocks
+the cancellation of its siblings rather than being swept along with them.
+The value is source-specific: an invalid YAML duration fails configuration
+parsing, while a zero or negative YAML duration is rejected at startup with
+`tasks.stallDetectionThreshold must be positive`. An invalid or non-positive
+environment value falls back to `2h`, and non-positive values from a profile
+default are ignored, leaving the `2h` default in effect. The environment
+variable overrides YAML, and changes require a backend restart.
 
 ### Capacity and managed-process startup settings
 

@@ -2623,16 +2623,22 @@ func waitForCancellationRetry(ctx context.Context, delay time.Duration) bool {
 const maxCancelAttempts = 3
 
 func (s *Service) cancelActiveTaskSessionsWithRetry(
-	ctx context.Context, taskID, reason string,
+	ctx context.Context, taskID, reason string, sessionIDs []string,
 ) ([]*models.TaskSession, error) {
 	const cancelRetryBackoff = 250 * time.Millisecond
 
 	var cancelledSessions []*models.TaskSession
 	var cancelErr error
 	for attempt := 1; attempt <= maxCancelAttempts; attempt++ {
-		cancelledSessions, cancelErr = s.sessions.CancelActiveTaskSessionsByTaskID(
-			ctx, taskID, reason,
-		)
+		if len(sessionIDs) == 0 {
+			cancelledSessions, cancelErr = s.sessions.CancelActiveTaskSessionsByTaskID(
+				ctx, taskID, reason,
+			)
+		} else {
+			cancelledSessions, cancelErr = s.sessions.CancelActiveTaskSessionsByIDs(
+				ctx, taskID, sessionIDs, reason,
+			)
+		}
 		if cancelErr == nil {
 			return cancelledSessions, nil
 		}
@@ -2676,7 +2682,25 @@ func (s *Service) finalizeCancelledSessions(
 	deadline time.Time,
 	reason string,
 ) {
-	cancelledSessions, cancelErr := s.cancelActiveTaskSessionsWithRetry(ctx, taskID, reason)
+	s.finalizeCancelledSessionIDs(ctx, taskID, activeSessions, nil, deadline, reason)
+}
+
+// finalizeCancelledSessionIDs is finalizeCancelledSessions with an optional
+// session-ID scope: when sessionIDs is non-empty only those sessions are
+// cancelled (a nil/empty scope means every active session of the task, the
+// archive semantics). The ID scope lets the session reconciliation sweep's
+// heal path cancel exactly the sessions it classified as orphaned, so an
+// execution that registered after classification is outside the write's
+// predicate and survives.
+func (s *Service) finalizeCancelledSessionIDs(
+	ctx context.Context,
+	taskID string,
+	activeSessions []*models.TaskSession,
+	sessionIDs []string,
+	deadline time.Time,
+	reason string,
+) {
+	cancelledSessions, cancelErr := s.cancelActiveTaskSessionsWithRetry(ctx, taskID, reason, sessionIDs)
 	if cancelErr != nil {
 		s.logger.Error("failed to reap active sessions on archive after retries",
 			zap.String("task_id", taskID),
@@ -2690,6 +2714,21 @@ func (s *Service) finalizeCancelledSessions(
 	s.logger.Info("reaped active sessions on archive",
 		zap.String("task_id", taskID),
 		zap.Int("count", len(cancelledSessions)))
+	s.runCancelledSessionEffects(ctx, taskID, activeSessions, cancelledSessions, deadline, reason)
+}
+
+// runCancelledSessionEffects owns every post-cancellation effect shared by
+// the archive and heal paths: clarification expiry, parked-projection
+// cleanup, session-ceiling release, and one session.state_changed per
+// cancelled session. CancelledSessionEffects run on a detached-but-bounded
+// context because the DB write already committed.
+func (s *Service) runCancelledSessionEffects(
+	ctx context.Context,
+	taskID string,
+	activeSessions, cancelledSessions []*models.TaskSession,
+	deadline time.Time,
+	reason string,
+) {
 	// Detach from ctx via WithoutCancel: the DB write above already
 	// committed on a detached context, so a client disconnect here must
 	// not also suppress the event publish below — event-driven clients
