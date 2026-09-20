@@ -2650,11 +2650,29 @@ func (s *Service) finalizeCancelledSessions(
 	s.logger.Info("reaped active sessions on archive",
 		zap.String("task_id", taskID),
 		zap.Int("count", len(cancelledSessions)))
-	// Detach from ctx via WithoutCancel: the DB write above already
-	// committed on a detached context, so a client disconnect here must
-	// not also suppress the event publish below — event-driven clients
-	// need session.state_changed regardless of whether the archiving
-	// caller is still connected.
+	s.notifyCancelledSessions(ctx, taskID, activeSessions, cancelledSessions, models.SessionArchiveCancelReason, deadline)
+}
+
+// notifyCancelledSessions runs the post-cancellation effects shared by every
+// task-service-owned bulk cancellation path (archive cancellation and the
+// orphan-session sweep): expire terminal clarifications, clear parked
+// projections, release session-ceiling reservations, and publish a
+// session.state_changed event per session actually cancelled. snapshot is the
+// pre-cancellation session list a caller already had in hand, used only for
+// old_state hints; cancelledSessions carries the rows the cancellation write
+// returned.
+//
+// The caller's cancellation write already committed on a detached context, so
+// a client disconnect must not also suppress the effects here — event-driven
+// clients need session.state_changed regardless of whether the caller is
+// still connected.
+func (s *Service) notifyCancelledSessions(
+	ctx context.Context,
+	taskID string,
+	snapshot, cancelledSessions []*models.TaskSession,
+	reason string,
+	deadline time.Time,
+) {
 	// Deliberately left unbounded at the batch level: clarification expiry and
 	// publishSessionsCancelled give each session their own independent timeout,
 	detachedCtx, cancelDetached := archivecascade.ContinuationContextUntil(ctx, deadline)
@@ -2668,7 +2686,7 @@ func (s *Service) finalizeCancelledSessions(
 			_, err := s.clarificationCanceller.ExpireSessionAndNotify(expireCtx, session.ID)
 			cancelExpire()
 			if err != nil {
-				s.logger.Error("failed to expire clarification after archive cancellation; response claims remain quarantined",
+				s.logger.Error("failed to expire clarification after session cancellation; response claims remain quarantined",
 					zap.String("task_id", taskID),
 					zap.String("session_id", session.ID),
 					zap.Error(err))
@@ -2685,7 +2703,7 @@ func (s *Service) finalizeCancelledSessions(
 			cancelParked()
 		}
 	}
-	// CancelActiveTaskSessionsByTaskID is a bulk writer: RETURNING reports every
+	// The cancellation writers are bulk writers: RETURNING reports every
 	// row's post-update CANCELLED state, not which were in an AC-1 state before
 	// the update, so every returned id is released unconditionally rather than
 	// branched on state (AC-51e). Releasing an id that held no reservation is a
@@ -2698,7 +2716,7 @@ func (s *Service) finalizeCancelledSessions(
 			s.sessionCeilingReleaser.ReleaseCeilingReservation(session.ID)
 		}
 	}
-	s.publishSessionsCancelled(detachedCtx, taskID, activeSessions, cancelledSessions, models.SessionArchiveCancelReason)
+	s.publishSessionsCancelled(detachedCtx, taskID, snapshot, cancelledSessions, reason)
 }
 
 func (s *Service) registerTaskRuntimeStopOwners(stopTargets []taskStopTarget, force bool) {

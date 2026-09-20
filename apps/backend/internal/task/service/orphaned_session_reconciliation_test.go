@@ -1,0 +1,187 @@
+package service
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	sqliterepo "github.com/kandev/kandev/internal/task/repository/sqlite"
+
+	"github.com/kandev/kandev/internal/events"
+	"github.com/kandev/kandev/internal/task/models"
+)
+
+// fakeExecutionLiveness is the test double for the orphan sweep's
+// execution-liveness seam: only session IDs in live map as backed by a live
+// in-memory execution.
+type fakeExecutionLiveness struct {
+	live map[string]bool
+}
+
+func (f *fakeExecutionLiveness) HasLiveExecution(sessionID string) bool {
+	return f.live[sessionID]
+}
+
+// seedOrphanSweepFixtures creates the one workspace and workflow every
+// orphan-sweep test task hangs off.
+func seedOrphanSweepFixtures(t *testing.T, repo *sqliterepo.Repository) {
+	t.Helper()
+	ctx := context.Background()
+	if err := repo.CreateWorkspace(ctx, &models.Workspace{ID: "ws-orphan", Name: "Workspace"}); err != nil {
+		t.Fatalf("CreateWorkspace: %v", err)
+	}
+	if err := repo.CreateWorkflow(ctx, &models.Workflow{ID: "wf-orphan", WorkspaceID: "ws-orphan", Name: "Workflow"}); err != nil {
+		t.Fatalf("CreateWorkflow: %v", err)
+	}
+}
+
+func seedOrphanSweepTask(t *testing.T, repo *sqliterepo.Repository, taskID string, archived bool) {
+	t.Helper()
+	ctx := context.Background()
+	if err := repo.CreateTask(ctx, &models.Task{
+		ID: taskID, WorkspaceID: "ws-orphan", WorkflowID: "wf-orphan", WorkflowStepID: "step-1",
+		Title: "Test " + taskID, Priority: "medium",
+	}); err != nil {
+		t.Fatalf("CreateTask(%s): %v", taskID, err)
+	}
+	if archived {
+		if _, err := repo.DB().ExecContext(ctx,
+			`UPDATE tasks SET archived_at = ? WHERE id = ?`, time.Now().UTC(), taskID); err != nil {
+			t.Fatalf("archive %s via SQL: %v", taskID, err)
+		}
+	}
+}
+
+func TestService_OrphanedSessionReconciliationTerminalizesUnbackedSessions(t *testing.T) {
+	svc, eventBus, repo := createTestService(t)
+	ctx := context.Background()
+	seedOrphanSweepFixtures(t, repo)
+
+	stale := time.Now().UTC().Add(-30 * time.Minute)
+	fresh := time.Now().UTC().Add(-1 * time.Minute)
+
+	seedOrphanSweepTask(t, repo, "task-orphaned", false)
+	seedOrphanSweepTask(t, repo, "task-live-exec", false)
+	seedOrphanSweepTask(t, repo, "task-inflight-launch", false)
+	seedOrphanSweepTask(t, repo, "task-archived", true)
+
+	seedSession := func(id, taskID string, state models.TaskSessionState, updatedAt time.Time) {
+		t.Helper()
+		if err := repo.CreateTaskSession(ctx, &models.TaskSession{
+			ID: id, TaskID: taskID, State: state,
+			AgentProfileID: "agent-1", IsPrimary: true, UpdatedAt: updatedAt, StartedAt: updatedAt,
+		}); err != nil {
+			t.Fatalf("CreateTaskSession(%s): %v", id, err)
+		}
+	}
+	// The orphan this sweep exists for: unarchived task, stale RUNNING row,
+	// nothing in the execution store backs it (backend restart mid-turn).
+	seedSession("session-orphaned-running", "task-orphaned", models.TaskSessionStateRunning, stale)
+	// Same orphan class in STARTING: the launch died with the process.
+	seedSession("session-orphaned-starting", "task-orphaned", models.TaskSessionStateStarting, stale)
+	// Healthy sibling of the orphaned task: waiting for user input, must
+	// survive the sweep even though the task lost its RUNNING session.
+	seedSession("session-healthy-sibling", "task-orphaned", models.TaskSessionStateWaitingForInput, stale)
+	// Stale RUNNING row that a live execution still backs (e.g. re-tracked by
+	// startup recovery): must never be terminalized.
+	seedSession("session-live-execution", "task-live-exec", models.TaskSessionStateRunning, stale)
+	// Fresh RUNNING row: an in-flight launch may not have reached the
+	// in-memory store yet, so the grace window must protect it.
+	seedSession("session-inflight-launch", "task-inflight-launch", models.TaskSessionStateRunning, fresh)
+	// Archived task with a stale RUNNING session: the archived pass owns it,
+	// the orphan pass must not touch it.
+	seedSession("session-archived-task", "task-archived", models.TaskSessionStateRunning, stale)
+
+	svc.SetExecutionLivenessChecker(&fakeExecutionLiveness{
+		live: map[string]bool{"session-live-execution": true},
+	})
+	svc.runOrphanedSessionReconciliation(ctx)
+
+	assertState := func(id string, want models.TaskSessionState) {
+		t.Helper()
+		session, err := repo.GetTaskSession(ctx, id)
+		if err != nil {
+			t.Fatalf("GetTaskSession(%s): %v", id, err)
+		}
+		if session.State != want {
+			t.Errorf("session %s state = %q, want %q", id, session.State, want)
+		}
+	}
+	assertState("session-orphaned-running", models.TaskSessionStateCancelled)
+	assertState("session-orphaned-starting", models.TaskSessionStateCancelled)
+	assertState("session-healthy-sibling", models.TaskSessionStateWaitingForInput)
+	assertState("session-live-execution", models.TaskSessionStateRunning)
+	assertState("session-inflight-launch", models.TaskSessionStateRunning)
+	assertState("session-archived-task", models.TaskSessionStateRunning)
+
+	orphaned, err := repo.GetTaskSession(ctx, "session-orphaned-running")
+	if err != nil {
+		t.Fatalf("GetTaskSession(orphaned): %v", err)
+	}
+	if orphaned.ErrorMessage != models.SessionOrphanedCancelReason {
+		t.Errorf("orphaned session error_message = %q, want %q",
+			orphaned.ErrorMessage, models.SessionOrphanedCancelReason)
+	}
+
+	for _, id := range []string{"session-orphaned-running", "session-orphaned-starting"} {
+		if !sessionCancelledEventPublished(eventBus, id) {
+			t.Errorf("expected a session.state_changed event for %s from the orphan sweep, got none", id)
+		}
+	}
+	for _, id := range []string{"session-healthy-sibling", "session-live-execution", "session-inflight-launch", "session-archived-task"} {
+		if sessionCancelledEventPublished(eventBus, id) {
+			t.Errorf("unexpected session.state_changed event for %s", id)
+		}
+	}
+}
+
+func sessionCancelledEventPublished(eventBus *MockEventBus, sessionID string) bool {
+	for _, evt := range eventBus.GetPublishedEvents() {
+		if evt.Type != events.TaskSessionStateChanged {
+			continue
+		}
+		data, ok := evt.Data.(map[string]interface{})
+		if ok && data["session_id"] == sessionID && data["new_state"] == string(models.TaskSessionStateCancelled) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestService_OrphanedSessionReconciliationRequiresLivenessChecker pins the
+// fail-safe: with no execution-liveness seam wired, the sweep must be inert —
+// absence-from-store is its only dead signal, and a nil checker can never
+// prove a session unbacked.
+func TestService_OrphanedSessionReconciliationRequiresLivenessChecker(t *testing.T) {
+	svc, _, repo := createTestService(t)
+	ctx := context.Background()
+	seedOrphanSweepFixtures(t, repo)
+	seedOrphanSweepTask(t, repo, "task-orphaned", false)
+	if err := repo.CreateTaskSession(ctx, &models.TaskSession{
+		ID: "session-orphaned", TaskID: "task-orphaned", State: models.TaskSessionStateRunning,
+		AgentProfileID: "agent-1", IsPrimary: true,
+		UpdatedAt: time.Now().UTC().Add(-30 * time.Minute), StartedAt: time.Now().UTC().Add(-30 * time.Minute),
+	}); err != nil {
+		t.Fatalf("CreateTaskSession: %v", err)
+	}
+
+	// No SetExecutionLivenessChecker call.
+	svc.runOrphanedSessionReconciliation(ctx)
+
+	session, err := repo.GetTaskSession(ctx, "session-orphaned")
+	if err != nil {
+		t.Fatalf("GetTaskSession: %v", err)
+	}
+	if session.State != models.TaskSessionStateRunning {
+		t.Fatalf("session state = %q, want RUNNING (sweep must stay inert without the liveness seam)", session.State)
+	}
+}
+
+// TestSessionOrphanedCancelReasonIsNotArchiveReason pins the reason taxonomy:
+// resume paths branch on IsArchiveCancelReason, so the orphan reason must
+// stay distinct from the archive reasons.
+func TestSessionOrphanedCancelReasonIsNotArchiveReason(t *testing.T) {
+	if models.IsArchiveCancelReason(models.SessionOrphanedCancelReason) {
+		t.Fatal("SessionOrphanedCancelReason must not be an archive cancel reason")
+	}
+}

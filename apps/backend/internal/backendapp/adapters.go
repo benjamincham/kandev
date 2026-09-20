@@ -987,6 +987,15 @@ func (a *lifecycleAdapter) ResolveAgentProfile(ctx context.Context, profileID st
 	}, nil
 }
 
+// HasLiveExecution reports whether the session still has an execution in the
+// runtime's in-memory store. It backs the task service's orphan-session
+// reconciliation sweep, which treats absence-from-store as its dead signal;
+// this lookup must never lazily create an execution.
+func (a *lifecycleAdapter) HasLiveExecution(sessionID string) bool {
+	_, ok := a.mgr.GetExecutionBySessionID(sessionID)
+	return ok
+}
+
 // GetGitLog retrieves the git log for a session from baseCommit to HEAD.
 // If targetBranch is provided, uses dynamic merge-base calculation for accurate filtering.
 func (a *lifecycleAdapter) GetGitLog(ctx context.Context, sessionID, baseCommit string, limit int, targetBranch string) (*client.GitLogResult, error) {

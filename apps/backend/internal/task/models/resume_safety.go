@@ -70,15 +70,24 @@ func RowMustBePreserved(running *ExecutorRunning, sessionState TaskSessionState)
 	return IsResumableSessionState(sessionState)
 }
 
-// SessionArchiveCancelReason and SessionArchiveTreeCancelReason are the
 // TaskSession.ErrorMessage values written when a session is auto-cancelled
-// by archiving — Service.ArchiveTask's CancelActiveTaskSessionsByTaskID call
+// by a system sweep rather than an explicit user or coordinator stop.
+// SessionArchiveCancelReason and SessionArchiveTreeCancelReason come from
+// archiving — Service.ArchiveTask's CancelActiveTaskSessionsByTaskID call
 // (single-task archive) and HandoffService.cancelActiveRuns (cascade archive)
 // respectively. Distinct reasons keep the cancellation source visible in
 // session history and diagnostics.
 const (
 	SessionArchiveCancelReason     = "task archived"
 	SessionArchiveTreeCancelReason = "task tree archived"
+
+	// SessionOrphanedCancelReason is written when the orphan-session sweep
+	// terminalizes a STARTING/RUNNING session that no live in-memory execution
+	// backs — the backend-restart residue where the actor that would have
+	// completed the turn died with the process. Distinct from the archive
+	// reasons: the task was never archived, and distinct from a user stop:
+	// this is a self-healing system cancellation, not an explicit stop.
+	SessionOrphanedCancelReason = "orphaned by backend restart"
 )
 
 // IsArchiveCancelReason reports whether reason came from an archive path.

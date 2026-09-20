@@ -155,6 +155,9 @@ func provideOrchestrator(
 	// Runtime-aware liveness lets durable cleanup treat a not-found stop for a
 	// confirmed-dead local runtime as already stopped instead of retrying forever.
 	taskSvc.SetRowLivenessProber(agentManagerClient)
+	// The orphan-session sweep terminalizes stale STARTING/RUNNING sessions no
+	// live in-memory execution backs (backend-restart residue, #3711).
+	taskSvc.SetExecutionLivenessChecker(agentManagerClient)
 	taskSvc.SetContextWindowResetter(orchestratorSvc.ResetContextWindow)
 	taskSvc.SetGitArchiveCapture(orchestratorSvc)
 	// Automation runs keep their worktrees so they stay repliable, which makes

@@ -2142,6 +2142,85 @@ func (r *Repository) CancelActiveTaskSessionsByTaskID(ctx context.Context, taskI
 	return sessions, rows.Err()
 }
 
+// ListStaleRunningSessionsOnUnarchivedTasks returns every STARTING/RUNNING
+// session of an unarchived task whose updated_at is older than staleBefore.
+// It is the candidate list for the orphan-session reconciliation sweep (see
+// service.runOrphanedSessionReconciliation): a session still holding one of
+// those states past the launch grace window, with no live in-memory execution
+// backing it, can never reach a terminal state on its own — its actor died
+// with the process. The staleBefore cutoff is applied in SQL so the sweep
+// never even loads fresh rows that may belong to an in-flight launch.
+//
+// Not part of the SessionRepository interface: it exists for that one sweep,
+// which reaches it through the narrow orphanedSessionRepository capability —
+// widening the interface would force every test double in the tree to grow
+// methods this sweep never exercises through them.
+func (r *Repository) ListStaleRunningSessionsOnUnarchivedTasks(ctx context.Context, staleBefore time.Time) ([]*models.TaskSession, error) {
+	rows, err := r.ro.QueryContext(ctx, `
+		SELECT `+taskSessionSelectCols+` `+taskSessionFromClause+`
+		JOIN tasks t ON t.id = ts.task_id
+		WHERE ts.state IN ('STARTING', 'RUNNING')
+			AND ts.updated_at < ?
+			AND t.archived_at IS NULL
+		ORDER BY ts.updated_at ASC
+	`, staleBefore)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	sessions, err := r.scanTaskSessions(ctx, rows)
+	if err != nil {
+		return nil, err
+	}
+	return r.loadWorktreesBatch(ctx, sessions)
+}
+
+// CancelRunningTaskSessionByID transitions a single STARTING/RUNNING session
+// to CANCELLED, returning the transitioned row, or nil when the session is no
+// longer in one of those states (already terminal, or raced to another state
+// between the sweep's candidate read and this write). Like
+// CancelActiveTaskSessionsByTaskID it is a pure DB state change that requires
+// no live agent execution, and it is session-scoped so the orphan sweep can
+// terminalize one session without cancelling healthy sibling sessions of the
+// same task. The UPDATE and the row selection happen in one atomic RETURNING
+// statement; the returned row carries only the fields that clause selects
+// (same set as CancelActiveTaskSessionsByTaskID, minus TaskID — callers pass
+// the task ID they already know). The write detaches from ctx like
+// CancelActiveTaskSessionsByTaskID: once the sweep has decided this session
+// is orphaned, the terminal transition must not be lost to a caller-context
+// cancellation, and the 10s bound keeps a locked SQLite writer from stalling
+// the sweep pass. A failed write simply retries on the next sweep tick.
+func (r *Repository) CancelRunningTaskSessionByID(ctx context.Context, sessionID, reason string) (*models.TaskSession, error) {
+	now := time.Now().UTC()
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	rows, err := r.db.QueryContext(writeCtx, r.db.Rebind(`
+		UPDATE task_sessions
+		SET state = ?, error_message = ?, completed_at = ?, updated_at = ?
+		WHERE id = ?
+			AND state IN ('STARTING', 'RUNNING')
+		RETURNING id, agent_profile_id, agent_profile_snapshot, is_passthrough, name,
+			review_status, metadata, task_environment_id, state, updated_at
+	`), string(models.TaskSessionStateCancelled), reason, now, now, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	if !rows.Next() {
+		return nil, rows.Err()
+	}
+	// The scanner backfills TaskID from the parameter because RETURNING
+	// does not carry it; sessionID is not the task ID, so set it from the
+	// candidate row the sweep already read instead.
+	session, err := scanCancelledTaskSessionRow(rows, "")
+	if err != nil {
+		return nil, err
+	}
+	return session, rows.Err()
+}
+
 // scanCancelledTaskSessionRow scans one row produced by
 // CancelActiveTaskSessionsByTaskID's UPDATE ... RETURNING into a
 // *models.TaskSession, mirroring scanTaskSessionRow's JSON-unmarshal and
