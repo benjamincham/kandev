@@ -232,6 +232,9 @@ function pathExemption(pathname) {
   if (pathname === 'docs' || pathname.startsWith('docs/')) {
     return 'documentation tree';
   }
+  if (pathname === 'plugin-registry/plugins.yaml') {
+    return 'canonical plugin registry source';
+  }
   if (/\.(?:md|mdx|markdown)$/i.test(pathname)) {
     return 'Markdown file';
   }
@@ -252,6 +255,9 @@ function pathExemption(pathname) {
   }
   if (pathname.startsWith('apps/web/e2e/')) {
     return 'web end-to-end test';
+  }
+  if (/^\.github\/(?:workflows|scripts|actions)\//.test(pathname)) {
+    return 'CI infrastructure path';
   }
 
   const basename = POSIX_PATH.basename(pathname);

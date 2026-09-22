@@ -260,6 +260,13 @@ permanent deletion. Each entry shows its `delete_after` retention deadline: **De
 time, not an exact promise, the first successful scheduled or full manual maintenance run after the
 deadline performs the purge, subject to the idle gate and any preemption.
 
+Each full maintenance run also revisits at most 100 Kandev-managed local branches retained when a
+task was archived before its work was integrated. Kandev considers only durable rows that still
+belong to archived tasks with inactive worktrees; it does not scan branch-name patterns or fetch
+remote state. The branch is removed only after the same ownership, liveness, and local integration
+checks used during archive cleanup. Remote refs and branches with unpublished or ambiguous work
+remain untouched.
+
 ![Settings > System > Storage showing the maintenance policy, schedule, workspace cleanup, and folder allowlist.](../screenshots/system-maintenance-policy.png)
 
 Use **Clear eligible** to remove only entries whose deadlines have passed. It reports protected
@@ -453,6 +460,45 @@ Open **Settings > System > Data & Logs > Database** to see database size, WAL si
 
 These actions run as background system jobs. Closing the browser does not cancel a job. Check the page or logs for its terminal state before starting another maintenance operation.
 
+Conversation history uses the task database as its source. A storage cutover
+can remove the retired conversation journal tables and triggers in one startup
+migration, after the normal pre-migration backup. The migration is transactional
+and safe to retry after a failed attempt. Stop older Kandev backends before the
+upgrade; a mixed old and new writer set is not supported. The cutover does not
+run `VACUUM`, so use the existing **Vacuum** action later if you need to reduce
+the SQLite file size.
+
+#### Compact SQLite after the conversation upgrade
+
+Compaction is an explicit maintenance operation, separate from backup, migration,
+and readiness. Startup does not compact the live database. The pre-migration
+snapshot uses `VACUUM INTO` to create a separate backup; it does not shrink the
+live file.
+
+1. Wait for the upgraded backend to become ready. Check history before proceeding.
+2. Copy the verified pre-upgrade backup outside the automatic retention directory
+   for rollback. Create and verify a current snapshot to preserve newer work.
+3. Schedule a quiet maintenance period and pause agent runs. Ensure sufficient
+   free disk space for temporary files, the WAL, and retained backups.
+4. Open **Settings > System > Data & Logs > Database** and select **Vacuum**.
+   Wait for the job to finish before starting other maintenance or resuming runs.
+5. Check the reported reclaimed bytes, `/ready`, and conversation history.
+   Existing backup files are not compacted by this operation.
+
+For offline maintenance, stop every backend that uses the database, including
+supervised services. Then run the following against the configured SQLite path:
+
+```bash
+sqlite3 "/absolute/path/to/kandev.db" 'VACUUM;'
+sqlite3 "/absolute/path/to/kandev.db" 'PRAGMA integrity_check;'
+```
+
+The integrity check must return `ok` before you restart Kandev. Do not delete
+`-wal` or `-shm` files manually. `PRAGMA optimize` and a WAL checkpoint do not
+replace compaction. SQLite documents a worst-case requirement of twice the
+original database size in additional free space for
+[VACUUM](https://www.sqlite.org/lang_vacuum.html).
+
 ### PostgreSQL
 
 PostgreSQL is an external, operator-managed database. The Database page shows driver, database-level size, and schema version, but hides SQLite path, WAL, backup time, and maintenance controls. Kandev does not take a pre-migration PostgreSQL dump and the System Backups page is not a PostgreSQL backup/restore facility. Use your platform backup policy or `pg_dump`/`pg_restore`.
@@ -481,6 +527,48 @@ the upgrade against the unchanged database.
 The normalized schema is intentionally incompatible with older binaries. To downgrade, stop all instances and restore the pre-upgrade backup; never start an older binary against a post-cutover database. SQLite restores from the verified manual snapshot created before the upgrade; PostgreSQL restores your verified `pg_dump` backup.
 
 Switching `database.driver` does not migrate data. PostgreSQL and shared NATS remove two single-process data constraints, but they do not make Kandev horizontally scalable: WebSocket subscriptions, execution lifecycle/control state, and task workspaces remain process- or filesystem-local. The current product and supplied deployment validate one backend replica only; do not add replicas based on the database and event bus alone.
+
+### Upgrading past the canonical PR-watch migration
+
+A release that makes GitHub PR watches task-owned instead of session-owned (see
+[ADR-2026-08-31-task-owned-pr-watch-identity](../decisions/2026-08-31-task-owned-pr-watch-identity.md))
+runs a one-time, idempotent, transactional cleanup of `github_pr_watches`
+during SQLite startup, after the existing version-change snapshot described
+above. A failed snapshot or a failed migration aborts startup before any
+destructive change; a database that has already been migrated, or a fresh
+install, skips it entirely. The migration only ever removes duplicate rows
+for the same task/repository/branch (keeping the newest check/comment/review
+status and any discovered PR number) and rows orphaned by a deleted task or a
+detached repository; it never removes normal conversation messages, snapshots,
+or plans, and Review-task monitoring survives the originating session's
+completion.
+
+To upgrade safely:
+
+1. Take and verify a SQLite backup as described above (manual snapshot from
+   **Settings > System > Backups**, or `sqlite3` `VACUUM INTO`); the automatic
+   pre-migration snapshot is taken during the new binary's startup, so it
+   cannot be verified beforehand.
+2. Stop all backend writers before starting the new binary; do not run a
+   mixed-version fleet across the upgrade.
+3. Start exactly one instance of the new binary and let it reach a healthy
+   state. Check **System > Status** or `/health`, then spot-check a task that
+   has an open pull request and a Review-stage task whose originating session
+   already completed: both should still show a monitored PR.
+4. Optionally, after confirming health, run `kandev maintenance database`
+   (dry run first) to review and, if desired, reclaim storage from the
+   superseded rows the migration and prior duplicate polling left behind; see
+   [Database maintenance](cli.md#database-maintenance) for its full dry-run,
+   execute, compact, and rollback behavior. The maintenance command never
+   deletes ordinary human/agent conversation messages, and its own retention
+   deletes still require an explicit `--execute` plus a verified backup
+   independent of the migration's own snapshot.
+
+If startup aborts during the migration, the pre-migration snapshot in
+`backups/` is untouched and the live database was never partially modified:
+restore from that snapshot only if you need to run an older binary again,
+otherwise fix the reported cause and restart the same new binary; the
+migration is safe to retry because it is idempotent.
 
 </details>
 
