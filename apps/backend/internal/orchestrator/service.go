@@ -3445,12 +3445,16 @@ func (s *Service) startLifecycleSweepAsync(ctx context.Context) bool {
 		return false
 	}
 	s.lifecycleSweepCancel = cancel
-	s.lifecycleSweepWorkers.Add(1)
+	s.lifecycleSweepWorkers.Add(2)
 	s.lifecycleSweepMu.Unlock()
 	go func() {
 		defer s.lifecycleSweepWorkers.Done()
 		s.reconcileTaskLifecycleTokens(sweepCtx)
 		s.reconcileDependencyLaunchesOnStartup(sweepCtx)
+	}()
+	go func() {
+		defer s.lifecycleSweepWorkers.Done()
+		s.runDependencyReconcileLoop(sweepCtx)
 	}()
 	return true
 }
