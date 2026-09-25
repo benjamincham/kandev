@@ -572,17 +572,21 @@ func buildDependencyView(
 //
 // Resolution requires SUCCESS. This is deliberately stricter than the
 // on_children_completed trigger, which counts FAILED as terminal: a chain must
-// never proceed on a failed step. Archived tasks are pending, because archival
-// is neither success nor failure.
+// never proceed on a failed step. Archival does not affect a terminal outcome:
+// archived tasks in non-terminal states stay pending (archival is neither
+// success nor failure), but COMPLETED and FAILED/CANCELLED resolve on their
+// recorded outcome alone.
 func DependencyStatusForTask(task *models.Task) string {
 	if task == nil {
 		return DependencyPending
 	}
 	switch task.State {
 	case v1.TaskStateCompleted:
-		if task.ArchivedAt != nil {
-			return DependencyPending
-		}
+		// A completed outcome is final: archiving only hides the card, it
+		// does not change what the predecessor did. Treating an archived
+		// COMPLETED task as pending stalls every dependent forever — the
+		// terminality branch below already ignores archival for the same
+		// reason.
 		return DependencyResolved
 	case v1.TaskStateFailed, v1.TaskStateCancelled:
 		return DependencyFailed

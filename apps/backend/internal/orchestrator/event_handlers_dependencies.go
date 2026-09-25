@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -165,6 +166,14 @@ func (s *Service) publishDependencyFailed(
 	}
 }
 
+// dependencyReconcileInterval is the cadence of the runtime dependency-launch
+// sweep started by startLifecycleSweepAsync. It re-runs the same bounded
+// listing as the startup reconcile, so a deferred launch whose single event
+// fired while the launch itself failed — or whose predecessor's terminal
+// transition was never delivered — is retried instead of stalling until the
+// next restart.
+const dependencyReconcileInterval = 60 * time.Second
+
 // reconcileDependencyLaunchesOnStartup launches tasks whose dependencies were
 // satisfied while the process was down.
 //
@@ -177,12 +186,19 @@ func (s *Service) publishDependencyFailed(
 // Scoped to tasks that actually carry a start-when-unblocked intent, so the
 // sweep is bounded by the number of pending chain steps rather than the board.
 func (s *Service) reconcileDependencyLaunchesOnStartup(ctx context.Context) {
+	s.reconcileDependencyLaunches(ctx, "startup")
+}
+
+// reconcileDependencyLaunches lists pending start-when-unblocked launches and
+// admits every candidate whose gate has opened. scope names the calling sweep
+// ("startup" or "runtime") for log attribution.
+func (s *Service) reconcileDependencyLaunches(ctx context.Context, scope string) {
 	if s.dependencyReader == nil {
 		return
 	}
 	pending, err := s.dependencyReader.ListPendingDependencyLaunches(ctx)
 	if err != nil {
-		s.logger.Warn("startup: failed to list pending dependency launches", zap.Error(err))
+		s.logger.Warn(scope+": failed to list pending dependency launches", zap.Error(err))
 		return
 	}
 	for _, candidate := range pending {
@@ -190,8 +206,24 @@ func (s *Service) reconcileDependencyLaunchesOnStartup(ctx context.Context) {
 		if err != nil || blocked {
 			continue
 		}
-		s.logger.Info("startup: launching task whose dependencies resolved while down",
+		s.logger.Info(scope+": launching task whose dependencies resolved",
 			zap.String("task_id", candidate.TaskID))
-		s.autoStartTaskForStep(ctx, candidate.TaskID, candidate.WorkflowStepID, "startup.dependencies_resolved", 0, false)
+		s.autoStartTaskForStep(ctx, candidate.TaskID, candidate.WorkflowStepID, scope+".dependencies_resolved", 0, false)
+	}
+}
+
+// runDependencyReconcileLoop repeats the dependency launch reconcile on a
+// ticker until ctx is cancelled. The event-driven path stays primary; this
+// loop is the backstop for launches lost to a one-shot failure.
+func (s *Service) runDependencyReconcileLoop(ctx context.Context) {
+	ticker := time.NewTicker(dependencyReconcileInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.reconcileDependencyLaunches(ctx, "runtime")
+		}
 	}
 }

@@ -660,6 +660,15 @@ func (s *Service) AssociateExistingPRByURLForWorkspace(
 	if err != nil {
 		return nil, fmt.Errorf("associate PR with task: %w", err)
 	}
+	// A linked-by-URL PR still needs a watch: the orphan sweep covers only
+	// lifecycle fields, so check/review aggregates (and armed auto-merge)
+	// never populate without one. The association row lands on taskID as
+	// passed (URLLink does not redirect to a group owner), and the watch's
+	// task_id is its only sync handle, so it must agree with that row.
+	if _, watchErr := s.createPRWatch(ctx, workspaceID, "", taskID, repositoryID, owner, repo, prNumber, pr.HeadBranch); watchErr != nil {
+		s.logger.Warn("failed to create PR watch for URL-linked task PR",
+			zap.String("task_id", taskID), zap.String("url", prURL), zap.Error(watchErr))
+	}
 	return tp, nil
 }
 
