@@ -241,6 +241,64 @@ func TestWorkspacePathEscapesSurfacesUnresolvableWorkspace(t *testing.T) {
 	require.ErrorContains(t, err, "resolve workspace dir")
 }
 
+func TestCleanupPassthroughMCPConfigKeepsWorkspaceConfigWhenSiblingLive(t *testing.T) {
+	mgr := newTestManager(t)
+	workspace := t.TempDir()
+	path := filepath.Join(workspace, ".pi", "mcp.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+	require.NoError(t, os.WriteFile(path, []byte(`{"mcpServers":{}}`), 0o600))
+
+	outgoing := &AgentExecution{ID: "exec-outgoing", WorkspacePath: workspace, metadata: map[string]interface{}{}}
+	incoming := &AgentExecution{ID: "exec-incoming", WorkspacePath: workspace, metadata: map[string]interface{}{}}
+	setPassthroughMCPFiles(outgoing, []string{path})
+	require.NoError(t, mgr.executionStore.Add(outgoing))
+	require.NoError(t, mgr.executionStore.Add(incoming))
+
+	mgr.RemoveExecution("exec-outgoing")
+
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("workspace MCP config must outlive the outgoing execution while a sibling is live: %v", err)
+	}
+}
+
+func TestCleanupPassthroughMCPConfigDeletesWhenNoSibling(t *testing.T) {
+	mgr := newTestManager(t)
+	workspace := t.TempDir()
+	path := filepath.Join(workspace, ".pi", "mcp.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+	require.NoError(t, os.WriteFile(path, []byte(`{"mcpServers":{}}`), 0o600))
+
+	execution := &AgentExecution{ID: "exec-1", WorkspacePath: workspace, metadata: map[string]interface{}{}}
+	setPassthroughMCPFiles(execution, []string{path})
+	require.NoError(t, mgr.executionStore.Add(execution))
+
+	mgr.RemoveExecution("exec-1")
+
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("workspace MCP config must be deleted by the last execution on the workspace, stat err=%v", err)
+	}
+}
+
+func TestCleanupPassthroughMCPConfigSiblingOnOtherWorkspaceStillDeletes(t *testing.T) {
+	mgr := newTestManager(t)
+	workspace := t.TempDir()
+	path := filepath.Join(workspace, ".pi", "mcp.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+	require.NoError(t, os.WriteFile(path, []byte(`{"mcpServers":{}}`), 0o600))
+
+	outgoing := &AgentExecution{ID: "exec-outgoing", WorkspacePath: workspace, metadata: map[string]interface{}{}}
+	other := &AgentExecution{ID: "exec-other", WorkspacePath: t.TempDir(), metadata: map[string]interface{}{}}
+	setPassthroughMCPFiles(outgoing, []string{path})
+	require.NoError(t, mgr.executionStore.Add(outgoing))
+	require.NoError(t, mgr.executionStore.Add(other))
+
+	mgr.RemoveExecution("exec-outgoing")
+
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("a sibling on a different workspace must not shield the file, stat err=%v", err)
+	}
+}
+
 func TestCleanupPassthroughMCPConfigToleratesRemovalFailure(t *testing.T) {
 	mgr := newTestManager(t)
 	dir := t.TempDir()

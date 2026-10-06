@@ -647,6 +647,9 @@ func workspacePathEscapes(workspaceDir, path string) (bool, error) {
 
 func (m *Manager) cleanupPassthroughMCPConfig(execution *AgentExecution) {
 	for _, path := range getPassthroughMCPFiles(execution) {
+		if m.passthroughMCPFileSharedWithLiveExecution(execution, path) {
+			continue
+		}
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			m.logger.Warn("failed to remove passthrough MCP config",
 				zap.String("path", path),
@@ -654,6 +657,35 @@ func (m *Manager) cleanupPassthroughMCPConfig(execution *AgentExecution) {
 		}
 	}
 	execution.deleteMetadataValues(metadataKeyPassthroughMCPFiles, metadataKeyPassthroughMCPEnv)
+}
+
+// passthroughMCPFileSharedWithLiveExecution reports whether path is a
+// workspace-local config (.pi/mcp.json, .cursor/mcp.json, …) while another
+// live execution uses the same workspace. Such files are owned by the
+// workspace, not by one execution: a successor session materializes its own
+// copy before the predecessor's teardown runs, and deleting it here would
+// leave the successor's agent without MCP tools. Session-scoped temp configs
+// are always removed. When two executions on the same workspace terminate
+// concurrently the file may be left behind; the next materialization
+// overwrites it.
+func (m *Manager) passthroughMCPFileSharedWithLiveExecution(execution *AgentExecution, path string) bool {
+	ws := filepath.Clean(execution.WorkspacePath)
+	if ws == "" || ws == "." {
+		return false
+	}
+	rel, err := filepath.Rel(ws, filepath.Clean(path))
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+	for _, other := range m.executionStore.List() {
+		if other == nil || other.ID == execution.ID {
+			continue
+		}
+		if other.WorkspacePath != "" && filepath.Clean(other.WorkspacePath) == ws {
+			return true
+		}
+	}
+	return false
 }
 
 func appendUnique(list []string, value string) []string {
